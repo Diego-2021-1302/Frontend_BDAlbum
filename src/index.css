@@ -1,8 +1,32 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import url('https://fonts.googleapis.com/css2?family=Great+Vibes&family=Lato:wght@300;400;700&display=swap');
+@import "tailwindcss";
 
-body {
-  @apply bg-neutral-950 text-neutral-100 min-h-screen antialiased;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Inter", Roboto, sans-serif;
+@theme {
+  --color-primary: #7C1039;
+  --color-dark: #050712;
+  --color-card: #0B1120;
+}
+
+@layer base {
+  body {
+    @apply bg-dark text-white font-sans overflow-x-hidden;
+    /* Bloqueo total de menús nativos y selección para PWA */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar { 
+  display: none; 
+}
+.no-scrollbar { 
+  -ms-overflow-style: none; 
+  scrollbar-width: none; 
+}
+
+.font-title { 
+  font-family: 'Great Vibes', cursive; 
 }
