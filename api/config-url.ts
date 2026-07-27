@@ -5,13 +5,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // Intentamos conectar usando las variables que Vercel te asignó (REDIS_URL o KV)
+  const url = process.env.KV_REST_API_URL || (process.env.REDIS_URL ? process.env.REDIS_URL.replace('redis://', 'https://') : '');
+  const token = process.env.KV_REST_API_TOKEN || '';
+
   const client = createClient({
-    url: process.env.KV_REST_API_URL || process.env.REDIS_URL?.replace('redis://', 'https://'),
-    token: process.env.KV_REST_API_TOKEN || '',
+    url: url,
+    token: token,
   });
 
   const KEY = 'backend_url';
@@ -30,8 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ success: true, baseUrl: cleanUrl });
     }
   } catch (err: any) {
-    console.error('Error de conexión Redis:', err.message);
-    // Si falla la DB, devolvemos 500 para que lo veamos en consola, pero con info
+    console.error('Error Redis:', err.message);
     return res.status(500).json({ error: 'Redis Connection Error', message: err.message });
   }
 }
