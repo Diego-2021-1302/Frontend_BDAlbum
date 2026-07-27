@@ -65,21 +65,25 @@ export const useAuthStore = create<AuthState>((set, get) => {
       localStorage.setItem('last_user', userData.username);
 
       const cleanUrl = setPersistedBaseUrl(currentUrl);
-      set({ baseUrl: cleanUrl });
-
-      // PERSISTENCIA GLOBAL: Ahora ESPERAMOS a que se guarde antes de continuar
-      try {
-        console.log('Intentando persistir URL globalmente:', cleanUrl);
-        await updateGlobalBaseUrl(cleanUrl);
-      } catch (e) {
-        console.error('No se pudo persistir globalmente, se usará solo local:', e);
-      }
-
-      set({ 
+      set({
         user: userData,
         isAuthenticated: true,
         lastUser: userData.username,
+        baseUrl: cleanUrl
       });
+
+      // PERSISTENCIA GLOBAL en segundo plano
+      updateGlobalBaseUrl(cleanUrl)
+        .then(success => {
+          if (success) {
+            console.log('✅ URL sincronizada globalmente en Redis:', cleanUrl);
+          } else {
+            console.warn('⚠️ El servidor recibió la URL pero no confirmó el guardado.');
+          }
+        })
+        .catch(e => {
+          console.error('❌ Error de red al intentar sincronizar:', e);
+        });
     },
 
     logout: () => {

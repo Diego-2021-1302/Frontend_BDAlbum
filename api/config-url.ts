@@ -2,39 +2,47 @@ import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Cabeceras básicas de CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Cache-Control', 'no-store, max-age=0');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const DEFAULT_URL = 'https://plot-thread-would-dining.trycloudflare.com';
   const KEY = 'backend_url';
+  const DEFAULT = 'https://plot-thread-would-dining.trycloudflare.com';
 
   try {
     if (req.method === 'GET') {
-      // Intentar obtener de KV, si falla o no existe, usar el DEFAULT
-      let savedUrl = null;
-      try {
-        savedUrl = await kv.get(KEY);
-      } catch (e) {
-        console.error('Redis Get Error:', e);
-      }
-      return res.status(200).json({ baseUrl: savedUrl || DEFAULT_URL });
+      const saved = await kv.get(KEY);
+      console.log('Consulta Redis:', saved || 'VACÍO (usando default)');
+      return res.status(200).json({
+        baseUrl: saved || DEFAULT,
+        source: saved ? 'database' : 'default_fallback',
+        timestamp: new Date().toISOString()
+      });
     }
 
     if (req.method === 'POST') {
       const { baseUrl } = req.body;
-      if (!baseUrl) return res.status(400).json({ error: 'Missing baseUrl' });
+      if (!baseUrl) {
+        console.error('Error: Intento de guardar baseUrl vacía');
+        return res.status(400).json({ error: 'baseUrl is required' });
+      }
 
       const cleanUrl = baseUrl.trim().replace(/\/$/, '');
       await kv.set(KEY, cleanUrl);
-      return res.status(200).json({ success: true, baseUrl: cleanUrl });
+
+      console.log('ÉXITO: URL guardada en Redis:', cleanUrl);
+      return res.status(200).json({ success: true, savedUrl: cleanUrl });
     }
-  } catch (err: any) {
-    console.error('Global API Error:', err);
-    return res.status(200).json({ baseUrl: DEFAULT_URL, error: err.message });
+  } catch (e: any) {
+    console.error('ERROR CRÍTICO REDIS:', e.message);
+    return res.status(500).json({
+      error: 'Redis connection failed',
+      message: e.message,
+      fallbackUrl: DEFAULT
+    });
   }
+
+  return res.status(405).end();
 }
