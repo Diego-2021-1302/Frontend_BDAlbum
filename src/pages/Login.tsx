@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { apiService } from '../api/api';
 import { DEFAULT_API_BASE_URL } from '../config/apiConfig';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const Login: React.FC = () => {
+  const navigate = useNavigate();
   const { baseUrl, setBaseUrl, saveGlobalConfig, login: storeLogin } = useAuthStore();
   
   const [identity, setIdentity] = useState(localStorage.getItem('app_user_id') || '');
@@ -46,7 +48,7 @@ const Login: React.FC = () => {
         // Animacion de exito antes de navegar
         setTimeout(async () => {
           await storeLogin(res.user || { id: 0, username: identity }, res.token, api);
-          window.location.replace('/');
+          navigate('/');
         }, 500);
       } else {
         setError('PIN Incorrecto');

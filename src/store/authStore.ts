@@ -41,28 +41,41 @@ export const useAuthStore = create<AuthState>((set, get) => {
     },
 
     fetchGlobalConfig: async () => {
-      const configUrl = await fetchGlobalBaseUrl();
-      if (!configUrl) return;
+      try {
+        const configUrl = await fetchGlobalBaseUrl();
+        if (!configUrl) return;
 
-      setPersistedBaseUrl(configUrl);
-      set({ baseUrl: configUrl });
+        // Si ya estamos autenticados y tenemos una URL que funciona,
+        // no dejamos que la configuración global nos la pise a menos que sea distinta
+        const currentUrl = get().baseUrl;
+        if (get().isAuthenticated && currentUrl !== DEFAULT_API_BASE_URL) {
+          console.log('Manteniendo URL actual de la sesión:', currentUrl);
+          return;
+        }
+
+        setPersistedBaseUrl(configUrl);
+        set({ baseUrl: configUrl });
+      } catch (e) {
+        console.error('Error sincronizando configuración:', e);
+      }
     },
     
     login: async (userData, token, url) => {
-      // Usamos la URL que se pasó (la que funcionó) o la del estado
       const currentUrl = (url || get().baseUrl).trim().replace(/\/$/, '');
 
       localStorage.setItem('auth_token', token);
       localStorage.setItem('last_user', userData.username);
 
-      // Guardamos la URL localmente
       const cleanUrl = setPersistedBaseUrl(currentUrl);
       set({ baseUrl: cleanUrl });
 
-      // PERSISTENCIA GLOBAL: Intentamos actualizar la URL en el servidor para todos los usuarios
-      updateGlobalBaseUrl(cleanUrl).then(() => {
-        console.log('URL de backend actualizada globalmente:', cleanUrl);
-      }).catch(e => console.error('Error actualizando URL global:', e));
+      // PERSISTENCIA GLOBAL: Ahora ESPERAMOS a que se guarde antes de continuar
+      try {
+        console.log('Intentando persistir URL globalmente:', cleanUrl);
+        await updateGlobalBaseUrl(cleanUrl);
+      } catch (e) {
+        console.error('No se pudo persistir globalmente, se usará solo local:', e);
+      }
 
       set({ 
         user: userData,
