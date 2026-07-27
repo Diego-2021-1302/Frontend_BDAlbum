@@ -20,7 +20,7 @@
     "react-hook-form": "^7.79.0",
     "react-player": "^3.4.0",
     "react-router-dom": "^7.18.0",
-    "redis": "^6.1.0",
+    "ioredis": "^5.5.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

@@ -1,5 +1,8 @@
-import { Redis } from '@upstash/redis';
+import Redis from 'ioredis';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+
+// Usamos una variable global para reutilizar la conexión en Vercel (evita agotar conexiones)
+let redis: Redis | null = null;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -9,28 +12,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // ESCANEO DINÁMICO DE VARIABLES (Para saltar prefijos de Vercel)
-  const allEnvKeys = Object.keys(process.env);
+  const redisUrl = process.env.REDIS_URL || process.env.KV_URL;
 
-  // Buscamos cualquier variable que termine en _URL y contenga REST o REDIS o KV
-  const urlKey = allEnvKeys.find(k => (k.includes('URL') || k.includes('REST_API')) && (k.includes('KV') || k.includes('REDIS') || k.includes('STORAGE')));
-  const tokenKey = allEnvKeys.find(k => k.includes('TOKEN') && (k.includes('KV') || k.includes('REDIS') || k.includes('STORAGE')));
-
-  const url = urlKey ? process.env[urlKey] : null;
-  const token = tokenKey ? process.env[tokenKey] : null;
-
-  if (!url || !token) {
+  if (!redisUrl) {
     return res.status(500).json({
-      error: 'No se encontraron variables de Redis',
-      keys_escaneadas: allEnvKeys.filter(k => k.includes('URL') || k.includes('TOKEN'))
+      error: 'No se encontró REDIS_URL',
+      debug: Object.keys(process.env).filter(k => k.includes('URL') || k.includes('REDIS'))
     });
   }
 
-  try {
-    const redisUrl = url.startsWith('redis://') ? url.replace('redis://', 'https://') : url;
-    const redis = new Redis({ url: redisUrl, token });
-    const KEY = 'backend_url';
+  // Inicializar cliente si no existe
+  if (!redis) {
+    redis = new Redis(redisUrl, {
+      connectTimeout: 10000,
+      maxRetriesPerRequest: 1
+    });
+  }
 
+  const KEY = 'backend_url';
+
+  try {
     if (req.method === 'GET') {
       const saved = await redis.get(KEY);
       return res.status(200).json({ baseUrl: saved || "" });
@@ -38,12 +39,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'POST') {
       const { baseUrl } = req.body;
-      if (!baseUrl) return res.status(400).json({ error: 'URL requerida' });
+      if (!baseUrl) return res.status(400).json({ error: 'Falta baseUrl' });
       const cleanUrl = baseUrl.trim().replace(/\/$/, '');
       await redis.set(KEY, cleanUrl);
       return res.status(200).json({ success: true, baseUrl: cleanUrl });
     }
   } catch (err: any) {
-    return res.status(500).json({ error: 'Error de conexión Redis', message: err.message });
+    console.error('Error Redis:', err.message);
+    return res.status(500).json({ error: 'Error de conexión Redis', details: err.message });
   }
 }
