@@ -43,15 +43,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
     fetchGlobalConfig: async () => {
       try {
         const configUrl = await fetchGlobalBaseUrl();
-        if (!configUrl) return;
+        console.log('Respuesta base de datos global:', configUrl);
 
-        // Si ya estamos autenticados y tenemos una URL que funciona,
-        // no dejamos que la configuración global nos la pise a menos que sea distinta
-        const currentUrl = get().baseUrl;
-        if (get().isAuthenticated && currentUrl !== DEFAULT_API_BASE_URL) {
-          console.log('Manteniendo URL actual de la sesión:', currentUrl);
-          return;
-        }
+        if (!configUrl) return;
 
         setPersistedBaseUrl(configUrl);
         set({ baseUrl: configUrl });
