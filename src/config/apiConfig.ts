@@ -8,7 +8,11 @@ export function getPersistedBaseUrl(): string {
 
 export async function fetchGlobalBaseUrl(): Promise<string | null> {
   try {
-    const response = await fetch('/api/config-url', { cache: 'no-store' });
+    // Añadimos un timestamp para romper la caché del navegador y de Vercel Edge
+    const response = await fetch(`/api/config-url?t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+    });
     if (!response.ok) return null;
     const data = await response.json();
     if (!data?.baseUrl) return null;

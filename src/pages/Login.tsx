@@ -7,9 +7,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
-  const { baseUrl, setBaseUrl, saveGlobalConfig, login: storeLogin } = useAuthStore();
+  const { baseUrl, setBaseUrl, saveGlobalConfig, login: storeLogin, fetchGlobalConfig } = useAuthStore();
   
   const [identity, setIdentity] = useState(localStorage.getItem('app_user_id') || '');
+
+  // Forzar actualización de la URL global al entrar al login
+  React.useEffect(() => {
+    fetchGlobalConfig();
+  }, [fetchGlobalConfig]);
   const [pin, setPin] = useState('');
   const [step, setStep] = useState<'user' | 'pin'>('user');
   const [loading, setLoading] = useState(false);

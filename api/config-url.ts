@@ -21,6 +21,9 @@ export default async function handler(
     return response.status(200).end();
   }
 
+  // Asegurar que Vercel no cachee la respuesta de la función
+  response.setHeader('Cache-Control', 'no-s-cache, no-store, must-revalidate');
+
   try {
     if (request.method === 'GET') {
       const savedUrl = await kv.get(KV_KEY);
