@@ -47,10 +47,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
         const currentLocalUrl = getPersistedBaseUrl();
 
-        // Si la URL que viene de la DB es la misma que la vieja por defecto
-        // y nosotros ya tenemos una URL distinta guardada localmente, NO la sobrescribimos.
         if (configUrl === DEFAULT_API_BASE_URL && currentLocalUrl !== DEFAULT_API_BASE_URL) {
-          console.log('Manteniendo URL local más reciente:', currentLocalUrl);
           return;
         }
 

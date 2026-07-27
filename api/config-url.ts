@@ -1,41 +1,40 @@
 import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const DEFAULT_URL = 'https://plot-thread-would-dining.trycloudflare.com';
-const KV_KEY = 'backend_url';
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // Cabeceras básicas de CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
 
-export default async function handler(request: VercelRequest, response: VercelResponse) {
-  response.setHeader('Access-Control-Allow-Origin', '*');
-  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  response.setHeader('Cache-Control', 'no-s-cache, no-store, must-revalidate');
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
-  if (request.method === 'OPTIONS') return response.status(200).end();
+  const DEFAULT_URL = 'https://plot-thread-would-dining.trycloudflare.com';
+  const KEY = 'backend_url';
 
   try {
-    if (request.method === 'GET') {
-      const savedUrl = await kv.get(KV_KEY);
-      return response.status(200).json({
-        baseUrl: (savedUrl as string) || DEFAULT_URL,
-        isDefault: !savedUrl
-      });
-    }
-
-    if (request.method === 'POST') {
-      // Forzar el parseo si llega como string
-      const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
-      const { baseUrl } = body;
-
-      if (baseUrl && baseUrl.startsWith('http')) {
-        const cleanUrl = baseUrl.trim().replace(/\/$/, '');
-        await kv.set(KV_KEY, cleanUrl);
-        console.log('URL actualizada en Redis:', cleanUrl);
-        return response.status(200).json({ success: true, baseUrl: cleanUrl });
+    if (req.method === 'GET') {
+      // Intentar obtener de KV, si falla o no existe, usar el DEFAULT
+      let savedUrl = null;
+      try {
+        savedUrl = await kv.get(KEY);
+      } catch (e) {
+        console.error('Redis Get Error:', e);
       }
-      return response.status(400).json({ error: 'URL inválida' });
+      return res.status(200).json({ baseUrl: savedUrl || DEFAULT_URL });
     }
-  } catch (error) {
-    console.error('Error en API:', error);
-    return response.status(500).json({ error: 'Error de servidor', details: String(error) });
+
+    if (req.method === 'POST') {
+      const { baseUrl } = req.body;
+      if (!baseUrl) return res.status(400).json({ error: 'Missing baseUrl' });
+
+      const cleanUrl = baseUrl.trim().replace(/\/$/, '');
+      await kv.set(KEY, cleanUrl);
+      return res.status(200).json({ success: true, baseUrl: cleanUrl });
+    }
+  } catch (err: any) {
+    console.error('Global API Error:', err);
+    return res.status(200).json({ baseUrl: DEFAULT_URL, error: err.message });
   }
 }
