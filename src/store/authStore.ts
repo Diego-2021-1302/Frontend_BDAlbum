@@ -43,9 +43,16 @@ export const useAuthStore = create<AuthState>((set, get) => {
     fetchGlobalConfig: async () => {
       try {
         const configUrl = await fetchGlobalBaseUrl();
-        console.log('Respuesta base de datos global:', configUrl);
-
         if (!configUrl) return;
+
+        const currentLocalUrl = getPersistedBaseUrl();
+
+        // Si la URL que viene de la DB es la misma que la vieja por defecto
+        // y nosotros ya tenemos una URL distinta guardada localmente, NO la sobrescribimos.
+        if (configUrl === DEFAULT_API_BASE_URL && currentLocalUrl !== DEFAULT_API_BASE_URL) {
+          console.log('Manteniendo URL local más reciente:', currentLocalUrl);
+          return;
+        }
 
         setPersistedBaseUrl(configUrl);
         set({ baseUrl: configUrl });
