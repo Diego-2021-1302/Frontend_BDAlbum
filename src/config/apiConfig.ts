@@ -1,5 +1,5 @@
 export const API_BASE_URL_KEY = 'api_base_url';
-export const DEFAULT_API_BASE_URL = 'https://plot-thread-would-dining.trycloudflare.com';
+export const DEFAULT_API_BASE_URL = '';
 
 export function getPersistedBaseUrl(): string {
   const stored = localStorage.getItem(API_BASE_URL_KEY);

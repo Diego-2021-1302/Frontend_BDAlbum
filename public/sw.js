@@ -1,8 +1,13 @@
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then(names => Promise.all(names.map(n => caches.delete(n))))
-  );
+const CACHE_NAME = 'briego-v3';
+
+self.addEventListener('install', (e) => self.skipWaiting());
+self.addEventListener('activate', (e) => {
+  e.waitUntil(caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))));
   self.clients.claim();
 });
-self.addEventListener('fetch', () => {}); // No-op para PWA
+
+// Manejador mínimo para que Chrome/Safari acepten la PWA como instalable
+self.addEventListener('fetch', (event) => {
+  // No interceptar nada, dejar que todo vaya a la red directamente
+  return;
+});

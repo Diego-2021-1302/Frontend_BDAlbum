@@ -43,18 +43,16 @@ export const useAuthStore = create<AuthState>((set, get) => {
     fetchGlobalConfig: async () => {
       try {
         const configUrl = await fetchGlobalBaseUrl();
-        if (!configUrl) return;
-
-        const currentLocalUrl = getPersistedBaseUrl();
-
-        if (configUrl === DEFAULT_API_BASE_URL && currentLocalUrl !== DEFAULT_API_BASE_URL) {
-          return;
+        // Si Redis devuelve una URL (no vacía), la usamos como única fuente de verdad
+        if (configUrl && configUrl.trim() !== "") {
+          console.log('Sincronizando con fuente de verdad (Redis):', configUrl);
+          setPersistedBaseUrl(configUrl);
+          set({ baseUrl: configUrl });
+        } else {
+          console.log('Redis está vacío, esperando configuración inicial...');
         }
-
-        setPersistedBaseUrl(configUrl);
-        set({ baseUrl: configUrl });
       } catch (e) {
-        console.error('Error sincronizando configuración:', e);
+        console.error('Error al consultar fuente de verdad:', e);
       }
     },
     
@@ -72,17 +70,15 @@ export const useAuthStore = create<AuthState>((set, get) => {
         baseUrl: cleanUrl
       });
 
-      // PERSISTENCIA GLOBAL en segundo plano
+      // PERSISTENCIA GLOBAL: Intentamos guardar en la fuente de verdad (Redis)
       updateGlobalBaseUrl(cleanUrl)
         .then(success => {
           if (success) {
-            console.log('✅ URL sincronizada globalmente en Redis:', cleanUrl);
-          } else {
-            console.warn('⚠️ El servidor recibió la URL pero no confirmó el guardado.');
+            console.log('✅ Fuente de verdad actualizada (Redis):', cleanUrl);
           }
         })
         .catch(e => {
-          console.error('❌ Error de red al intentar sincronizar:', e);
+          console.error('❌ Error al intentar actualizar la fuente de verdad:', e);
         });
     },
 
