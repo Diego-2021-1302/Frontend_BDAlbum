@@ -45,7 +45,7 @@ const Login: React.FC = () => {
         
         // Animacion de exito antes de navegar
         setTimeout(async () => {
-          await storeLogin(res.user || { id: 0, username: identity }, res.token);
+          await storeLogin(res.user || { id: 0, username: identity }, res.token, api);
           window.location.replace('/');
         }, 500);
       } else {

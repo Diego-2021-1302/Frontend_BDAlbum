@@ -9,7 +9,7 @@ interface AuthState {
   baseUrl: string;
   setBaseUrl: (url: string) => void;
   saveGlobalConfig: (url: string) => Promise<boolean>;
-  login: (userData: User, token: string) => Promise<void>;
+  login: (userData: User, token: string, url?: string) => Promise<void>;
   logout: () => void;
   fetchGlobalConfig: () => Promise<void>;
 }
@@ -32,10 +32,11 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
     saveGlobalConfig: async (url) => {
       const cleanUrl = setPersistedBaseUrl(url);
+      // Actualizamos el estado local inmediatamente para que persista en esta sesión
+      set({ baseUrl: cleanUrl });
+
+      // Intentamos persistir globalmente (esto fallará en Vercel si no hay backend, pero no importa para el local)
       const success = await updateGlobalBaseUrl(cleanUrl);
-      if (success) {
-        set({ baseUrl: cleanUrl });
-      }
       return success;
     },
 
@@ -47,18 +48,26 @@ export const useAuthStore = create<AuthState>((set, get) => {
       set({ baseUrl: configUrl });
     },
     
-    login: async (userData, token) => {
-      const currentUrl = get().baseUrl.trim().replace(/\/$/, '');
+    login: async (userData, token, url) => {
+      // Usamos la URL que se pasó (la que funcionó) o la del estado
+      const currentUrl = (url || get().baseUrl).trim().replace(/\/$/, '');
 
       localStorage.setItem('auth_token', token);
       localStorage.setItem('last_user', userData.username);
-      await get().saveGlobalConfig(currentUrl);
+
+      // Guardamos la URL localmente
+      const cleanUrl = setPersistedBaseUrl(currentUrl);
+      set({ baseUrl: cleanUrl });
+
+      // PERSISTENCIA GLOBAL: Intentamos actualizar la URL en el servidor para todos los usuarios
+      updateGlobalBaseUrl(cleanUrl).then(() => {
+        console.log('URL de backend actualizada globalmente:', cleanUrl);
+      }).catch(e => console.error('Error actualizando URL global:', e));
 
       set({ 
         user: userData,
         isAuthenticated: true,
         lastUser: userData.username,
-        baseUrl: currentUrl
       });
     },
 
