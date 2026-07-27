@@ -2,7 +2,6 @@ import { kv } from '@vercel/kv';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Configuración de CORS estricta
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -12,13 +11,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const KEY = 'backend_url';
 
+  // LOG DE DIAGNÓSTICO (Esto aparecerá en el panel de Vercel)
+  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
+    console.error('CRÍTICO: Faltan variables de entorno KV. Verifica el Storage en Vercel.');
+    return res.status(500).json({
+      error: 'Base de datos no vinculada',
+      details: 'Debes conectar el Storage Redis/KV en el panel de Vercel.'
+    });
+  }
+
   try {
     if (req.method === 'GET') {
-      // Obtenemos directamente de Redis
-      const savedUrl = await kv.get<string>(KEY);
-
-      // Si no hay nada en Redis, devolvemos null o vacío.
-      // El frontend manejará este vacío.
+      const savedUrl = await kv.get(KEY);
       return res.status(200).json({
         baseUrl: savedUrl || "",
         status: savedUrl ? 'found' : 'empty_redis'
@@ -27,28 +31,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'POST') {
       const { baseUrl } = req.body;
-
-      if (!baseUrl || !baseUrl.startsWith('http')) {
-        return res.status(400).json({ error: 'URL inválida o vacía' });
-      }
+      if (!baseUrl) return res.status(400).json({ error: 'Falta baseUrl' });
 
       const cleanUrl = baseUrl.trim().replace(/\/$/, '');
-
-      // Guardado forzoso en Redis
       await kv.set(KEY, cleanUrl);
 
-      return res.status(200).json({
-        success: true,
-        baseUrl: cleanUrl,
-        message: 'URL actualizada globalmente en Redis'
-      });
+      return res.status(200).json({ success: true, baseUrl: cleanUrl });
     }
   } catch (err: any) {
-    // Si hay un error de conexión con Redis, devolvemos 500 para que sepas que algo va mal con la DB
-    console.error('REDIS ERROR:', err);
-    return res.status(500).json({
-      error: 'Error de conexión con la base de datos Redis',
-      details: err.message
-    });
+    console.error('Error de Redis:', err.message);
+    return res.status(500).json({ error: 'Error de conexión con Redis', details: err.message });
   }
 }

@@ -43,13 +43,15 @@ export const useAuthStore = create<AuthState>((set, get) => {
     fetchGlobalConfig: async () => {
       try {
         const configUrl = await fetchGlobalBaseUrl();
-        // Si Redis devuelve una URL (no vacía), la usamos como única fuente de verdad
+
+        // Si Redis responde con una URL válida, la forzamos
         if (configUrl && configUrl.trim() !== "") {
-          console.log('Sincronizando con fuente de verdad (Redis):', configUrl);
+          console.log('✅ URL cargada desde Redis (Fuente de Verdad):', configUrl);
           setPersistedBaseUrl(configUrl);
           set({ baseUrl: configUrl });
         } else {
-          console.log('Redis está vacío, esperando configuración inicial...');
+          // Si Redis está vacío o la respuesta es inválida, nos aseguramos de no usar basura
+          console.log('Redis está vacío o inaccesible.');
         }
       } catch (e) {
         console.error('Error al consultar fuente de verdad:', e);
