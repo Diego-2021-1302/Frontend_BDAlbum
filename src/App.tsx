@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from './store/authStore';
 import Login from './pages/Login';
+import InstallPWA from './components/InstallPWA';
 
 // Lazy loading para reducir el bundle inicial
 const Gallery = lazy(() => import('./pages/Gallery'));
@@ -52,6 +53,7 @@ const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <InstallPWA />
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/login" element={<Login />} />

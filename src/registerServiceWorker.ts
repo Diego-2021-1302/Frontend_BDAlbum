@@ -1,5 +1,14 @@
 export function registerServiceWorker() {
-  // Desactivado temporalmente para evitar errores 404 en producción
-  // y asegurar que las peticiones de API no sean interceptadas erróneamente.
-  console.log('Service Worker registration skipped');
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      // Registramos el sw.js que está en la carpeta public
+      navigator.serviceWorker.register('/sw.js')
+        .then((registration) => {
+          console.log('Service Worker registered for PWA:', registration.scope);
+        })
+        .catch((error) => {
+          console.error('Service Worker registration failed:', error);
+        });
+    });
+  }
 }
