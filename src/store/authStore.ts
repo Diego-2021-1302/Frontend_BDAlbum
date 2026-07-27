@@ -7,6 +7,7 @@ interface AuthState {
   isAuthenticated: boolean;
   lastUser: string;
   baseUrl: string;
+  isUpdatingGlobal: boolean; // Bandera para evitar rebotes de URL vieja
   setBaseUrl: (url: string) => void;
   saveGlobalConfig: (url: string) => Promise<boolean>;
   login: (userData: User, token: string, url?: string) => Promise<void>;
@@ -19,11 +20,11 @@ export const useAuthStore = create<AuthState>((set, get) => {
   const lastUser = localStorage.getItem('last_user') || '';
 
   return {
-    // Reconstruimos el objeto user si ya estamos autenticados para que no se pierda al recargar
     user: token ? { id: 0, username: lastUser } : null,
     isAuthenticated: !!token,
     lastUser: lastUser,
     baseUrl: getPersistedBaseUrl(),
+    isUpdatingGlobal: false,
 
     setBaseUrl: (url) => {
       const cleanUrl = setPersistedBaseUrl(url);
@@ -32,33 +33,33 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
     saveGlobalConfig: async (url) => {
       const cleanUrl = setPersistedBaseUrl(url);
-      // Actualizamos el estado local inmediatamente para que persista en esta sesión
-      set({ baseUrl: cleanUrl });
+      set({ baseUrl: cleanUrl, isUpdatingGlobal: true });
 
-      // Intentamos persistir globalmente (esto fallará en Vercel si no hay backend, pero no importa para el local)
+      console.log('🚀 Enviando nueva URL a la fuente de verdad (Redis):', cleanUrl);
       const success = await updateGlobalBaseUrl(cleanUrl);
+
+      // Esperamos un poco antes de permitir que fetchGlobalConfig vuelva a actuar
+      setTimeout(() => set({ isUpdatingGlobal: false }), 5000);
       return success;
     },
 
     fetchGlobalConfig: async () => {
+      // Si estamos en medio de una actualización local, no dejamos que la nube nos pise
+      if (get().isUpdatingGlobal) return;
+
       try {
         const data = await fetchGlobalBaseUrl();
-        // Si no hay datos, no hacemos nada
         if (!data) return;
-
-        // Si el servidor nos avisa de un error de base de datos, NO actualizamos
-        // para evitar pisar nuestra URL local con una rota.
-        if ((data as any).error) {
-          console.warn('⚠️ Usando URL local porque la base de datos global falló.');
-          return;
-        }
 
         const configUrl = typeof data === 'string' ? data : (data as any).baseUrl;
 
         if (configUrl && configUrl.trim() !== "") {
-          console.log('✅ URL sincronizada:', configUrl);
-          setPersistedBaseUrl(configUrl);
-          set({ baseUrl: configUrl });
+          const currentLocal = getPersistedBaseUrl();
+          if (configUrl !== currentLocal) {
+            console.log('🔄 Sincronizando: La nube tiene una URL más nueva:', configUrl);
+            setPersistedBaseUrl(configUrl);
+            set({ baseUrl: configUrl });
+          }
         }
       } catch (e) {
         console.error('Error sincronizando configuración:', e);
@@ -67,28 +68,18 @@ export const useAuthStore = create<AuthState>((set, get) => {
     
     login: async (userData, token, url) => {
       const currentUrl = (url || get().baseUrl).trim().replace(/\/$/, '');
-
       localStorage.setItem('auth_token', token);
       localStorage.setItem('last_user', userData.username);
 
-      const cleanUrl = setPersistedBaseUrl(currentUrl);
+      // Al loguearnos, nos aseguramos de que esta URL sea la global
+      await get().saveGlobalConfig(currentUrl);
+
       set({
         user: userData,
         isAuthenticated: true,
         lastUser: userData.username,
-        baseUrl: cleanUrl
+        baseUrl: currentUrl
       });
-
-      // PERSISTENCIA GLOBAL: Intentamos guardar en la fuente de verdad (Redis)
-      updateGlobalBaseUrl(cleanUrl)
-        .then(success => {
-          if (success) {
-            console.log('✅ Fuente de verdad actualizada (Redis):', cleanUrl);
-          }
-        })
-        .catch(e => {
-          console.error('❌ Error al intentar actualizar la fuente de verdad:', e);
-        });
     },
 
     logout: () => {

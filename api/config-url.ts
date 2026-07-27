@@ -1,6 +1,7 @@
 import { Redis } from '@upstash/redis';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+// Forzamos la creación del cliente dentro del handler para asegurar que las variables de entorno estén frescas
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -9,53 +10,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // INTENTO DE AUTODETECCIÓN DE VARIABLES
-  // Upstash necesita una URL que empiece por https://
-  const rawUrl = process.env.KV_REST_API_URL || process.env.REDIS_URL || '';
-  const token = process.env.KV_REST_API_TOKEN || process.env.REDIS_TOKEN || '';
+  const url = process.env.KV_REST_API_URL || process.env.REDIS_URL?.replace('redis://', 'https://');
+  const token = process.env.KV_REST_API_TOKEN || process.env.REDIS_TOKEN;
 
-  // Limpiar la URL para asegurar que Upstash la acepte
-  let cleanUrl = rawUrl.trim();
-  if (cleanUrl.startsWith('redis://')) {
-    // Si Vercel nos dio una URL de redis clásica, intentamos convertirla a la REST de Upstash
-    // Nota: Esto es un fallback, lo ideal es que KV_REST_API_URL esté presente.
-    cleanUrl = cleanUrl.replace('redis://', 'https://').split('@')[1] || cleanUrl;
-    if (!cleanUrl.startsWith('https://')) cleanUrl = 'https://' + cleanUrl;
+  if (!url || !token) {
+    return res.status(500).json({ error: 'Faltan credenciales de Redis en Vercel' });
   }
 
+  const redis = new Redis({ url, token });
   const KEY = 'backend_url';
-  const DEFAULT = 'https://plot-thread-would-dining.trycloudflare.com';
 
   try {
-    if (!cleanUrl || !token) {
-      throw new Error('Faltan credenciales de base de datos (URL o Token)');
-    }
-
-    const redis = new Redis({
-      url: cleanUrl,
-      token: token,
-    });
-
     if (req.method === 'GET') {
       const saved = await redis.get(KEY);
-      return res.status(200).json({ baseUrl: saved || DEFAULT });
+      return res.status(200).json({ baseUrl: saved || "" });
     }
 
     if (req.method === 'POST') {
       const { baseUrl } = req.body;
-      if (!baseUrl) return res.status(400).json({ error: 'Falta baseUrl' });
-      const newUrl = baseUrl.trim().replace(/\/$/, '');
-      await redis.set(KEY, newUrl);
-      return res.status(200).json({ success: true, baseUrl: newUrl });
+      if (!baseUrl) return res.status(400).json({ error: 'URL requerida' });
+
+      const cleanUrl = baseUrl.trim().replace(/\/$/, '');
+      await redis.set(KEY, cleanUrl);
+      console.log('✅ Redis actualizado:', cleanUrl);
+      return res.status(200).json({ success: true, baseUrl: cleanUrl });
     }
   } catch (err: any) {
-    console.error('Error Crítico Redis:', err.message);
-    // IMPORTANTE: Si la DB falla, devolvemos el DEFAULT para que tu APP no se quede en blanco
-    // Pero incluimos el error para que puedas verlo en la consola
-    return res.status(200).json({
-      baseUrl: DEFAULT,
-      error: 'Database connection failed',
-      details: err.message
-    });
+    return res.status(500).json({ error: 'Error de Redis', message: err.message });
   }
 }
