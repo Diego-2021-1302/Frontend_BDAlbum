@@ -8,7 +8,7 @@ export default async function handler(
   request: VercelRequest,
   response: VercelResponse
 ) {
-  // Habilitar CORS para que el frontend pueda llamar a esta función
+  // Configuración de CORS
   response.setHeader('Access-Control-Allow-Credentials', 'true');
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -23,8 +23,7 @@ export default async function handler(
 
   try {
     if (request.method === 'GET') {
-      // Intentamos obtener la URL de Vercel KV
-      const savedUrl = await kv.get<string>(KV_KEY);
+      const savedUrl = await kv.get(KV_KEY);
       return response.status(200).json({ baseUrl: savedUrl || DEFAULT_URL });
     }
 
@@ -32,16 +31,13 @@ export default async function handler(
       const { baseUrl } = request.body;
       if (baseUrl) {
         const cleanUrl = baseUrl.trim().replace(/\/$/, '');
-        // Guardamos en Vercel KV permanentemente
         await kv.set(KV_KEY, cleanUrl);
         return response.status(200).json({ success: true, baseUrl: cleanUrl });
       }
-      return response.status(400).json({ error: 'baseUrl is required' });
     }
   } catch (error) {
     console.error('KV Error:', error);
-    // Si KV no está configurado, devolvemos el default para no romper la app
-    return response.status(200).json({ baseUrl: DEFAULT_URL, warning: 'KV not configured' });
+    return response.status(200).json({ baseUrl: DEFAULT_URL, error: 'DB Connection error' });
   }
 
   return response.status(405).json({ error: 'Method not allowed' });
