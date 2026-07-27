@@ -1,5 +1,12 @@
-import { createClient } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+
+// Configuración del cliente de Upstash Redis
+// Estas variables las inyecta Vercel automáticamente al conectar el Storage
+const redis = new Redis({
+  url: process.env.KV_REST_API_URL || '',
+  token: process.env.KV_REST_API_TOKEN || '',
+});
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -9,19 +16,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const url = process.env.KV_REST_API_URL || (process.env.REDIS_URL ? process.env.REDIS_URL.replace('redis://', 'https://') : '');
-  const token = process.env.KV_REST_API_TOKEN || '';
-
-  const client = createClient({
-    url: url,
-    token: token,
-  });
-
   const KEY = 'backend_url';
 
   try {
     if (req.method === 'GET') {
-      const saved = await client.get(KEY);
+      const saved = await redis.get(KEY);
       return res.status(200).json({ baseUrl: saved || "" });
     }
 
@@ -29,11 +28,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { baseUrl } = req.body;
       if (!baseUrl) return res.status(400).json({ error: 'Falta baseUrl' });
       const cleanUrl = baseUrl.trim().replace(/\/$/, '');
-      await client.set(KEY, cleanUrl);
+      await redis.set(KEY, cleanUrl);
       return res.status(200).json({ success: true, baseUrl: cleanUrl });
     }
   } catch (err: any) {
-    console.error('Error Redis:', err.message);
-    return res.status(500).json({ error: 'Redis Connection Error', message: err.message });
+    console.error('Error Upstash Redis:', err.message);
+    return res.status(500).json({ error: 'Database Connection Error', message: err.message });
   }
 }
