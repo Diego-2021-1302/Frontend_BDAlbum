@@ -42,19 +42,26 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
     fetchGlobalConfig: async () => {
       try {
-        const configUrl = await fetchGlobalBaseUrl();
+        const data = await fetchGlobalBaseUrl();
+        // Si no hay datos, no hacemos nada
+        if (!data) return;
 
-        // Si Redis responde con una URL válida, la forzamos
+        // Si el servidor nos avisa de un error de base de datos, NO actualizamos
+        // para evitar pisar nuestra URL local con una rota.
+        if ((data as any).error) {
+          console.warn('⚠️ Usando URL local porque la base de datos global falló.');
+          return;
+        }
+
+        const configUrl = typeof data === 'string' ? data : (data as any).baseUrl;
+
         if (configUrl && configUrl.trim() !== "") {
-          console.log('✅ URL cargada desde Redis (Fuente de Verdad):', configUrl);
+          console.log('✅ URL sincronizada:', configUrl);
           setPersistedBaseUrl(configUrl);
           set({ baseUrl: configUrl });
-        } else {
-          // Si Redis está vacío o la respuesta es inválida, nos aseguramos de no usar basura
-          console.log('Redis está vacío o inaccesible.');
         }
       } catch (e) {
-        console.error('Error al consultar fuente de verdad:', e);
+        console.error('Error sincronizando configuración:', e);
       }
     },
     
