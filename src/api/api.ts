@@ -6,7 +6,10 @@ const getBaseUrl = () => {
   return useAuthStore.getState().baseUrl;
 };
 
-const api = axios.create();
+const api = axios.create({
+  maxBodyLength: Infinity,
+  maxContentLength: Infinity,
+});
 
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = localStorage.getItem('auth_token');
@@ -35,14 +38,90 @@ export const apiService = {
     return response.data;
   },
 
+  fetchMediaById: async (id: number): Promise<MediaItem> => {
+    const media = await apiService.fetchMedia();
+    const item = media.find((entry) => entry.id === id);
+    if (!item) {
+      throw new Error('No se encontró el recuerdo solicitado');
+    }
+    return item;
+  },
+
   uploadMedia: async (
     formData: FormData,
     onUploadProgress?: (progressEvent: AxiosProgressEvent) => void
   ): Promise<MediaItem> => {
-    const response = await api.post<MediaItem, AxiosResponse<MediaItem>>('/api/media', formData, {
-      onUploadProgress,
-    });
-    return response.data;
+    const { uploadUrl, baseUrl } = useAuthStore.getState();
+    const effectiveUploadUrl = uploadUrl || baseUrl;
+    const url = `${effectiveUploadUrl.replace(/\/$/, '')}/api/media`;
+
+    const maxAttempts = 5; // Más reintentos para archivos grandes
+    let attempt = 0;
+
+    while (true) {
+      try {
+        const response = await api.post<MediaItem, AxiosResponse<MediaItem>>(url, formData, {
+          onUploadProgress,
+          timeout: 0, // Sin límite de tiempo para videos pesados
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          }
+        });
+        return response.data;
+      } catch (err: any) {
+        attempt += 1;
+
+        // Errores de red, timeouts o errores de servidor 5xx son candidatos a reintento
+        const isNetworkError = !err.response || err.code === 'ECONNABORTED' || err.message?.toLowerCase()?.includes('network error');
+        const isServerError = err.response && err.response.status >= 500;
+
+        if (attempt >= maxAttempts || !(isNetworkError || isServerError)) {
+          throw err;
+        }
+
+        // Delay exponencial
+        const delay = Math.min(30000, Math.pow(2, attempt) * 1000);
+        await new Promise((res) => setTimeout(res, delay));
+      }
+    }
+  },
+
+  uploadChunk: async (
+    chunkData: FormData,
+    onUploadProgress?: (progressEvent: AxiosProgressEvent) => void,
+    signal?: AbortSignal
+  ): Promise<any> => {
+    const { uploadUrl, baseUrl } = useAuthStore.getState();
+    const effectiveUploadUrl = uploadUrl || baseUrl;
+    const url = `${effectiveUploadUrl.replace(/\/$/, '')}/api/media/upload-chunk`;
+
+    const maxAttempts = 6;
+    let attempt = 0;
+
+    while (true) {
+      try {
+        const response = await api.post(url, chunkData, {
+          onUploadProgress,
+          timeout: 0,
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+          signal,
+        });
+        return response.data;
+      } catch (err: any) {
+        attempt += 1;
+        const isRetryable = !err.response || err.response.status >= 500 || err.response.status === 408 || err.code === 'ECONNABORTED' || err.message?.toLowerCase()?.includes('network error');
+
+        if (attempt >= maxAttempts || !isRetryable) {
+          throw err;
+        }
+
+        const delay = Math.min(15000, 1000 * attempt * 2 + Math.floor(Math.random() * 1000));
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
   },
 
   updateMedia: async (id: number, data: Partial<MediaItem>): Promise<MediaItem> => {
@@ -54,15 +133,11 @@ export const apiService = {
     await api.delete(`/api/media/${id}`);
   },
 
-  /**
-   * Solicita al servidor que regenere miniaturas faltantes y procese HLS pendientes.
-   */
   regenerateAllMedia: async (): Promise<{ success: boolean; message: string }> => {
     const response = await api.post('/api/media/regenerate-all');
     return response.data;
   },
 
-  // Consulta el estado del procesamiento HLS de un video
   fetchHlsStatus: async (id: number): Promise<{
     id: number;
     hls_status: 'pending' | 'processing' | 'ready' | 'failed' | null;
@@ -100,29 +175,32 @@ export const apiService = {
   },
 
   /**
-   * Construye una URL válida para un recurso multimedia.
+   * Construye una URL válida para un recurso multimedia usando CARGA DISTRIBUIDA REAL.
+   * Balancea la carga basándose en la CARPETA del recurso.
+   * - /videos/ y /hls/ -> Nodo 8004
+   * - /images/ -> Nodo 8002
    */
-  buildFileUrl: (path: string | undefined | null): string => {
+  buildFileUrl: (path: string | undefined | null, type?: 'image' | 'video'): string => {
     if (!path) return '';
     
-    const baseUrl = getBaseUrl().replace(/\/$/, '');
+    const { baseUrl, mediaUrl, videoUrl } = useAuthStore.getState();
+
     let p = path.trim();
+    if (p.startsWith('http') || p.startsWith('blob:')) return p;
+    if (p.startsWith('/')) p = p.slice(1);
 
-    if (p.startsWith('http') || p.startsWith('blob:')) {
-      return p;
-    }
+    // ANALISIS POR RUTA (Estructura de Carpetas)
+    const isVideoAsset = p.includes('videos/') ||
+                         p.includes('hls/') ||
+                         p.includes('thumbnails/video/') ||
+                         type === 'video';
 
-    if (p.startsWith('/')) {
-      p = p.slice(1);
-    }
-
-    if (p.startsWith('api/')) {
-      return `${baseUrl}/${p}`;
-    }
-
-    const cleanPath = p.replace(/^(storage\/|public\/|media\/)/, '');
+    // Node 8004: Todo lo que esté en videos/ o hls/
+    // Node 8002: Todo lo que esté en images/ o thumbnails/image/
+    const effectiveBase = isVideoAsset ? (videoUrl || baseUrl) : (mediaUrl || baseUrl);
+    const cleanPath = p.replace(/^(storage\/|public\/|media\/|api\/media-file\/)/g, '');
     
-    return `${baseUrl}/api/media-file/${cleanPath}`;
+    return `${effectiveBase.replace(/\/$/, '')}/api/media-file/${cleanPath}`;
   },
 };
 

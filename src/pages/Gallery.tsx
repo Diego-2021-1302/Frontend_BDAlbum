@@ -16,106 +16,193 @@ interface GroupedMonth {
   total: number;
 }
 
-// ── Tarjeta de Medio (Optimizado para Safari/iOS) ────────────────
-const MediaCard = React.memo(({ item, onAction, onClick }: { 
+// ── SKELETON PROFESIONAL ───────────────────────────────────────
+const GallerySkeleton = () => (
+  <div className="space-y-16 animate-pulse px-2">
+    {[1, 2].map(m => (
+      <div key={m} className="space-y-8">
+        <div className="h-12 w-40 bg-white/5 rounded-2xl" />
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+          {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+            <div key={i} className="aspect-[3/4] bg-white/5 rounded-3xl" />
+          ))}
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+// ── TARJETA MULTIMEDIA PREMIUM ──────────────────────────────────
+const MediaCard = React.memo(({ item, index, onAction, onClick }: {
   item: MediaItem; 
+  index: number;
   onAction: (item: MediaItem, e: any) => void;
   onClick: (item: MediaItem) => void;
 }) => {
   const isVideo = item.type === 'video';
-  
-  const displaySrc = useMemo(() => {
-    if (isVideo) {
-      const thumbPath = item.thumbnail_url ?? item.thumbnail_path;
-      return thumbPath ? apiService.buildFileUrl(thumbPath) : null;
-    }
-    return apiService.buildFileUrl(item.file_url ?? item.file_path);
-  }, [item, isVideo]);
+  const [loaded, setLoaded] = useState(false);
+  const [isInView, setIsInView] = useState(index < 4);
+  const [retryCount, setRetryCount] = useState(0);
+  const cardRef = useRef<HTMLDivElement>(null);
 
-  const handleActionStart = (e: any) => onAction(item, e);
+  useEffect(() => {
+    if (index < 4) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsInView(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '100px' }
+    );
+    if (cardRef.current) observer.observe(cardRef.current);
+    return () => observer.disconnect();
+  }, [index]);
+
+  const displaySrc = useMemo(() => {
+    if (!isInView) return null;
+    if (isVideo && !item.thumbnail_path) return null;
+    const path = item.thumbnail_path ?? item.file_path;
+    // Añadimos una marca de tiempo por intento para forzar la recarga si falló por 429
+    const cacheBuster = retryCount > 0 ? `?r=${retryCount}` : '';
+    return path ? apiService.buildFileUrl(path, isVideo ? 'video' : 'image') + cacheBuster : null;
+  }, [item, isVideo, isInView, retryCount]);
+
+  const handleError = () => {
+    if (retryCount < 3) {
+        setTimeout(() => setRetryCount(prev => prev + 1), 2000);
+    }
+  };
 
   return (
-    <div 
+    <div
+      ref={cardRef}
       onContextMenu={(e) => e.preventDefault()}
-      onMouseDown={handleActionStart}
-      onTouchStart={handleActionStart}
+      onMouseDown={(e) => onAction(item, e)}
+      onTouchStart={(e) => onAction(item, e)}
       onClick={() => onClick(item)}
-      className="aspect-[4/5] overflow-hidden rounded-2xl border border-white/5 bg-white/5 relative cursor-pointer group shadow-lg active:scale-[0.98] transition-all"
+      data-id={item.id}
+      className="group relative aspect-[3/4] overflow-hidden rounded-2xl sm:rounded-[2rem] bg-white/[0.03] border border-white/5 cursor-pointer transform-gpu transition-all duration-500 hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.7)] active:scale-[0.97]"
     >
-      <div className="absolute inset-0 bg-slate-950 flex items-center justify-center">
+      <div className="absolute inset-0 bg-gradient-to-br from-white/[0.03] to-transparent animate-pulse" />
+
+      <div className="absolute inset-0 z-0">
         {displaySrc ? (
           <img
             src={displaySrc}
             alt=""
-            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+            onLoad={() => setLoaded(true)}
+            onError={handleError}
+            className={`w-full h-full object-cover transition-all duration-700 ease-out group-hover:scale-110
+              ${loaded ? 'opacity-100 scale-100' : 'opacity-0 scale-105'}`}
             loading="lazy"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.opacity = '0';
-            }}
+            decoding="async"
           />
-        ) : (
-          <div className="w-full h-full bg-slate-900/50 flex items-center justify-center">
-            {isVideo ? (
-              <div className="w-14 h-14 rounded-full bg-white/5 flex items-center justify-center border border-white/5">
-                <svg className="w-7 h-7 text-white/10" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-              </div>
-            ) : (
-              <div className="w-14 h-14 rounded-3xl bg-white/5 flex items-center justify-center border border-white/5">
-                <svg className="w-7 h-7 text-white/10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 15a1 1 0 011-1h14a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm0-6a1 1 0 011-1h4l2 2h8a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4z" /></svg>
-              </div>
-            )}
+        ) : isVideo && !item.thumbnail_path ? (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-[#7C1039]/5">
+             <div className="w-6 h-6 border-2 border-[#7C1039]/30 border-t-[#7C1039] rounded-full animate-spin" />
+             <span className="text-[8px] font-black text-[#7C1039] uppercase tracking-widest opacity-40">Procesando</span>
           </div>
-        )}
+        ) : null}
       </div>
 
-      <div className="absolute top-2 left-2 z-10 px-1.5 py-0.5 bg-black/60 backdrop-blur-md rounded text-[9px] font-bold text-white border border-white/10 uppercase tracking-wider">
-        {item.tag}
+      {/* Overlay Gradiente */}
+      <div className="absolute inset-0 z-10 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+
+      {/* Badge de Tag - Rediseñado */}
+      <div className="absolute top-3 left-3 z-20 px-2.5 py-1 bg-black/30 backdrop-blur-xl rounded-full border border-white/10 shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-[-10px] group-hover:translate-y-0">
+        <span className="text-[9px] font-black text-white/90 tracking-[0.1em] uppercase">{item.tag}</span>
       </div>
 
+      {/* Indicador de Video Premium */}
       {isVideo && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-          <div className="w-10 h-10 bg-white/10 backdrop-blur-sm rounded-full flex items-center justify-center border border-white/20 group-hover:scale-110 transition-transform">
-             <svg className="w-5 h-5 text-white/80 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+        <div className="absolute inset-0 z-10 flex items-center justify-center">
+          <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-transform duration-500 group-hover:scale-110">
+             <svg className="w-5 h-5 text-white/90 fill-current translate-x-0.5" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
           </div>
         </div>
       )}
 
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+      {/* Info rápida al hover (Mobile friendly long press) */}
+      <div className="absolute bottom-4 left-4 right-4 z-20 translate-y-4 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-500">
+        <p className="text-[10px] font-medium text-white/60 truncate uppercase tracking-widest">
+            {dayjs(item.taken_at).format('DD · MM · YYYY')}
+        </p>
+      </div>
+    </div>
+  );
+});
+
+// ── SECCIÓN DE DÍA VIRTUALIZADA PRO ───────────────────────────────
+const DaySection = React.memo(({ date, items, onAction, onClick }: {
+  date: string;
+  items: MediaItem[];
+  onAction: (item: MediaItem, e: any) => void;
+  onClick: (item: MediaItem) => void;
+}) => {
+  return (
+    <div
+      className="space-y-6 mb-12"
+      style={{
+        contentVisibility: 'auto',
+        containIntrinsicSize: 'auto 400px',
+        contain: 'layout style paint'
+      } as any}
+    >
+      <div className="flex items-center gap-4 px-2">
+        <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-white/5 to-transparent" />
+        <p className="text-[10px] font-black text-[#7C1039] uppercase tracking-[0.4em] whitespace-nowrap opacity-60">
+          {date}
+        </p>
+        <div className="h-[1px] flex-1 bg-gradient-to-l from-transparent via-white/5 to-transparent" />
+      </div>
+
+      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 gap-3">
+        {items.map((item, idx) => (
+          <div key={item.id} data-id={item.id}>
+            <MediaCard item={item} index={idx} onAction={onAction} onClick={onClick} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 });
 
 const Gallery: React.FC = () => {
-  const { user, logout } = useAuthStore();
-  const location = useLocation();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  
-  const queryYear = Number(searchParams.get('year')) || 0;
-  const returnYear = Number(location.state?.returnYear) || 0;
-  const initialYear = queryYear || returnYear || new Date().getFullYear();
-  const [selectedYear, setSelectedYear] = useState(initialYear);
+  const { user, logout } = useAuthStore();
+
+  const [selectedYear, setSelectedYear] = useState(Number(searchParams.get('year')) || new Date().getFullYear());
   const [selectedTag, setSelectedTag] = useState('');
   const [search, setSearch] = useState('');
-  
   const [actionItem, setActionItem] = useState<MediaItem | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<MediaItem | null>(null);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
-  const [editForm, setEditForm] = useState<MediaItem | null>(null);
   const [loadingAction, setLoadingAction] = useState(false);
+  const longPressTimer = useRef<any>(null);
 
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const touchStartPos = useRef<{ x: number, y: number } | null>(null);
-
-  const { data: items = [], isLoading } = useQuery<MediaItem[]>({
+  const { data: items = [], isLoading, refetch } = useQuery<MediaItem[]>({
     queryKey: ['media'],
     queryFn: () => apiService.fetchMedia(),
-    staleTime: 1000 * 60 * 10,
+    staleTime: 1000 * 60 * 30,
     refetchOnWindowFocus: false,
-    refetchInterval: (query) => 
-      query.state.data?.some(i => i.type === 'video' && i.hls_status !== 'ready' && i.hls_status !== 'failed') ? 3000 : false,
+    refetchOnReconnect: true,
   });
+
+  useEffect(() => {
+    const hasPendingVideoThumbs = items.some((item) => item.type === 'video' && !item.thumbnail_path);
+    if (!hasPendingVideoThumbs) return;
+
+    const interval = window.setInterval(() => {
+      refetch();
+    }, 10000);
+
+    return () => window.clearInterval(interval);
+  }, [items, refetch]);
 
   const availableYears = useMemo(() => 
     Array.from(new Set(items.map(item => dayjs(item.taken_at).year()))).sort((a, b) => b - a),
@@ -128,7 +215,7 @@ const Gallery: React.FC = () => {
   }, [availableYears, selectedYear]);
 
   useEffect(() => {
-    setSearchParams({ year: selectedYear.toString() });
+    setSearchParams({ year: selectedYear.toString() }, { replace: true });
   }, [selectedYear, setSearchParams]);
 
   const filteredItems = useMemo(() => {
@@ -137,7 +224,7 @@ const Gallery: React.FC = () => {
       const date = dayjs(item.taken_at);
       return date.year() === selectedYear &&
              (!selectedTag || item.tag === selectedTag) &&
-             (!search || item.description?.toLowerCase().includes(s));
+             (!search || (item.description?.toLowerCase().includes(s) || item.tag.toLowerCase().includes(s)));
     }).sort((a, b) => dayjs(b.taken_at).diff(dayjs(a.taken_at)));
   }, [items, selectedYear, selectedTag, search]);
 
@@ -155,29 +242,29 @@ const Gallery: React.FC = () => {
     return Object.values(months);
   }, [filteredItems]);
 
-  // ── Restauración de Scroll (Optimizado para Safari/iOS) ───────
-  useEffect(() => {
-    if (!isLoading && groupedItems.length > 0) {
-      const savedScroll = sessionStorage.getItem('gallery_scroll_pos');
-      if (savedScroll) {
-        requestAnimationFrame(() => {
-          window.scrollTo(0, parseInt(savedScroll));
-          setTimeout(() => sessionStorage.removeItem('gallery_scroll_pos'), 500);
-        });
-      }
-    }
-  }, [isLoading, groupedItems]);
-
   const handleMediaClick = useCallback((item: MediaItem) => {
     sessionStorage.setItem('gallery_scroll_pos', window.scrollY.toString());
-    navigate(`/reels?id=${item.id}&year=${selectedYear}`, { 
-      state: { items: filteredItems, returnYear: selectedYear } 
+
+    // Capturar posición exacta del elemento para el zoom
+    const el = document.querySelector(`[data-id="${item.id}"]`);
+    const rect = el?.getBoundingClientRect();
+
+    navigate(`/reels?id=${item.id}&year=${selectedYear}`, {
+      state: {
+        items: filteredItems,
+        returnYear: selectedYear,
+        originRect: rect ? {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height
+        } : null
+      }
     });
   }, [navigate, selectedYear, filteredItems]);
 
-  const handleActionStart = useCallback((item: MediaItem, e: any) => {
-    const coords = e.touches ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : { x: e.clientX, y: e.clientY };
-    touchStartPos.current = coords;
+  const handleActionStart = useCallback((item: MediaItem) => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
     longPressTimer.current = setTimeout(() => {
       setActionItem(item);
       if (window.navigator.vibrate) window.navigator.vibrate(50);
@@ -186,229 +273,186 @@ const Gallery: React.FC = () => {
 
   const handleActionEnd = useCallback(() => {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
-    touchStartPos.current = null;
   }, []);
 
   const handleExecuteDelete = async () => {
-    if (!actionItem?.id) return;
+    const itemToDelete = pendingDeleteItem || actionItem;
+    if (!itemToDelete?.id) return;
+
     setLoadingAction(true);
     try {
-      await apiService.deleteMedia(actionItem.id);
+      await apiService.deleteMedia(itemToDelete.id);
       queryClient.invalidateQueries({ queryKey: ['media'] });
       setActionItem(null);
+      setPendingDeleteItem(null);
       setIsConfirmingDelete(false);
     } catch (e) {
-      alert('Error al eliminar');
+      alert('Error');
     } finally {
       setLoadingAction(false);
     }
   };
 
-  const handleUpdate = async () => {
-    if (!editForm?.id) return;
-    try {
-      await apiService.updateMedia(editForm.id, editForm);
-      queryClient.invalidateQueries({ queryKey: ['media'] });
-      setIsEditing(false);
-      setActionItem(null);
-    } catch (e) {
-      alert('Error al actualizar');
-    }
-  };
-
   return (
-    <div 
-      className="min-h-[100dvh] bg-[#050712] pb-24" 
-      onMouseUp={handleActionEnd} onTouchEnd={handleActionEnd}>
-      
-      <header className="sticky top-0 z-40 bg-[#050712]/80 backdrop-blur-xl px-6 py-4 flex justify-between items-center border-b border-white/5">
-        <div className="w-10">
-          {/* Panel de administrador - Verificación robusta */}
-          {user?.username?.trim().toUpperCase() === 'UNICOMICOPTERO' && (
-            <Link to="/admin" className="p-2 text-white/40 hover:text-[#7C1039] transition-all">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-            </Link>
-          )}
+    <div className="min-h-[100dvh] w-full overflow-visible relative text-white selection:bg-[#7C1039]/50" onMouseUp={handleActionEnd} onTouchEnd={handleActionEnd}>
+      <div className="fixed inset-0 bg-[#050712] z-0" />
+      <motion.img
+        initial={{ opacity: 0, x: -100, rotate: -20 }}
+        animate={{ opacity: 0.08, x: 0, rotate: 0 }}
+        transition={{ duration: 1.5, ease: 'easeOut' }}
+        src="/assets/images/cereza.png"
+        className="fixed top-10 -left-10 h-40 pointer-events-none blur-none z-0"
+      />
+      <motion.img
+        initial={{ opacity: 0, x: 100, rotate: 20 }}
+        animate={{ opacity: 0.05, x: 0, rotate: 0 }}
+        transition={{ duration: 1.5, ease: 'easeOut', delay: 0.2 }}
+        src="/assets/images/ghost.png"
+        className="fixed bottom-20 -right-10 h-48 pointer-events-none blur-none z-0"
+      />
+      <div className="relative z-10 flex min-h-[100dvh] flex-col">
+      <header className="sticky top-0 z-50 bg-[#050712]/80 backdrop-blur-2xl px-4 py-4 sm:px-6 sm:py-5 min-h-[64px] sm:min-h-[72px] flex items-center justify-between gap-3 border-b border-white/[0.03]">
+        <div className="w-10 flex justify-start">
+           {user?.username?.trim().toUpperCase() === 'UNICOMICOPTERO' && (
+             <Link to="/admin" className="p-2 text-white/20 hover:text-[#7C1039] transition-all"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></Link>
+           )}
         </div>
-        <h1 className="font-title text-2xl tracking-tight text-white">Breese <span className="text-[#7C1039] mx-1">y</span> Diego</h1>
-        <div className="w-10" />
+        <h1 className="font-title text-2xl tracking-tight bg-gradient-to-b from-white to-white/60 bg-clip-text text-transparent">
+            Breese <span className="text-[#7C1039]">y</span> Diego
+        </h1>
+        <button onClick={() => logout()} className="w-10 flex justify-end text-white/20 hover:text-white transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+        </button>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 mt-6">
-        <div className="relative overflow-hidden bg-gradient-to-br from-[#1e0a14] via-[#0a0c1a] to-[#050712] p-8 rounded-[40px] border border-white/5 mb-10 shadow-2xl">
-          <div className="relative z-10 text-center">
-            <h2 className="font-title text-3xl sm:text-5xl mb-3 text-white tracking-tight whitespace-nowrap overflow-hidden text-ellipsis">Nuestros Momentos</h2>
-            <p className="text-white/30 text-xs mb-8 font-bold uppercase tracking-[0.3em]">CHERRY - GHOST</p>
-            
-            <div className="flex justify-center items-center gap-8 mb-10">
-              <img src="/assets/images/cereza.png" className="h-14 drop-shadow-[0_0_15px_rgba(124,16,57,0.4)]" alt="Cherry" />
-              <div className="h-10 w-[1px] bg-white/10" />
-              <img src="/assets/images/ghost.png" className="h-14 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]" alt="Ghost" />
+      <main className="relative max-w-5xl mx-auto px-4 sm:px-6 mt-4 sm:mt-8 w-full">
+        {/* HERO SECTION - REDISEÑO TOTAL */}
+        <section className="relative overflow-hidden bg-[#0a0b14] p-5 sm:p-10 rounded-[2rem] sm:rounded-[2.5rem] border border-white/[0.03] mb-8 sm:mb-12 shadow-[0_40px_90px_-20px_rgba(0,0,0,0.5)]">
+          <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-52 sm:w-72 h-52 sm:h-72 bg-[#7C1039]/10 rounded-full blur-[40px] sm:blur-[56px]" />
+
+          <div className="relative z-10 text-center space-y-6 sm:space-y-8">
+            <div className="space-y-2">
+                <motion.h2 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="font-title text-3xl sm:text-7xl bg-gradient-to-b from-white to-white/40 bg-clip-text text-transparent tracking-tighter">Nuestros Momentos</motion.h2>
+                <p className="text-[#7C1039] text-[9px] sm:text-[10px] font-black uppercase tracking-[0.4em] sm:tracking-[0.5em] opacity-80">CHERRY - GHOST</p>
             </div>
 
-            <div className="inline-flex flex-col items-center px-8 py-4 bg-white/5 backdrop-blur-md rounded-3xl border border-white/5 mb-10 min-w-[200px]">
-              <p className="text-4xl font-black text-white mb-1">{filteredItems.length}</p>
-              <p className="text-[9px] text-[#7C1039] font-black uppercase tracking-[0.2em]">Recuerdos en {selectedYear}</p>
+            <div className="flex justify-center items-center gap-6 sm:gap-12 py-2">
+              <motion.img whileHover={{ scale: 1.15, rotate: 12 }} src="/assets/images/cereza.png" className="h-10 sm:h-16 drop-shadow-[0_10px_30px_rgba(124,16,57,0.5)]" alt="Cherry" />
+              <div className="h-10 sm:h-16 w-[1px] bg-gradient-to-b from-transparent via-white/10 to-transparent" />
+              <motion.img whileHover={{ scale: 1.15, rotate: -12 }} src="/assets/images/ghost.png" className="h-10 sm:h-16 drop-shadow-[0_10px_30px_rgba(255,255,255,0.2)]" alt="Ghost" />
             </div>
 
-            <div className="space-y-4 max-w-sm mx-auto">
+            <div className="max-w-md mx-auto space-y-4 sm:space-y-6 pt-2">
               <div className="relative group">
-                <input 
-                  type="text" placeholder="Buscar un recuerdo especial..." value={search} onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-white/5 border border-white/5 rounded-2xl py-3.5 px-12 text-sm text-white outline-none focus:bg-white/10 focus:border-[#7C1039]/50 transition-all placeholder:text-white/20"
+                <div className="absolute inset-y-0 left-4 sm:left-5 flex items-center pointer-events-none text-white/20 group-focus-within:text-[#7C1039] transition-colors">
+                    <svg className="w-3.5 h-3.5 sm:w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </div>
+                <input
+                  type="text" placeholder="Buscar un recuerdo..." value={search} onChange={(e) => setSearch(e.target.value)}
+                  className="w-full bg-white/[0.03] border border-white/10 rounded-2xl sm:rounded-3xl py-3 sm:py-4 pl-10 sm:pl-12 pr-4 sm:pr-6 text-xs sm:text-sm text-white placeholder:text-white/20 outline-none focus:bg-white/[0.06] focus:border-[#7C1039]/40 transition-all shadow-inner"
                 />
-                <svg className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-[#7C1039] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="relative">
-                  <select 
-                    value={selectedYear} 
-                    onChange={(e) => setSelectedYear(parseInt(e.target.value))} 
-                    className="w-full bg-white/5 border border-white/5 rounded-xl py-3 px-4 text-xs text-white outline-none appearance-none cursor-pointer focus:border-[#7C1039]/50"
-                  >
-                    {availableYears.map(y => <option key={y} value={y} className="bg-[#050712]">{y}</option>)}
-                  </select>
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/20">
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  </div>
-                </div>
-                <div className="relative">
-                  <select 
-                    value={selectedTag} 
-                    onChange={(e) => setSelectedTag(e.target.value)} 
-                    className="w-full bg-white/5 border border-white/5 rounded-xl py-3 px-4 text-xs text-white outline-none appearance-none cursor-pointer focus:border-[#7C1039]/50"
-                  >
-                    <option value="">Todos</option>
-                    <option value="B">B - Breese</option>
-                    <option value="D">D - Diego</option>
-                    <option value="BD">BD - Ambos</option>
-                  </select>
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/20">
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  </div>
-                </div>
               </div>
 
-              {/* Botón de Logout simplificado integrado debajo de los filtros */}
-              <div className="flex justify-center pt-4">
-                <button 
-                  onClick={() => logout()} 
-                  className="text-white/20 hover:text-white/50 transition-colors text-[10px] font-black uppercase tracking-[0.2em] py-2 px-4"
-                >
-                  cerrar sesión
-                </button>
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                <div className="relative">
+                    <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="w-full bg-white/[0.03] border border-white/10 rounded-xl sm:rounded-2xl py-2.5 sm:py-3.5 px-4 sm:px-5 text-[10px] sm:text-xs text-white/80 outline-none appearance-none cursor-pointer focus:border-[#7C1039]/40">
+                        {availableYears.map(y => <option key={y} value={y} className="bg-[#0a0b14]">{y}</option>)}
+                    </select>
+                    <div className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/20"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
+                </div>
+                <div className="relative">
+                    <select value={selectedTag} onChange={(e) => setSelectedTag(e.target.value)} className="w-full bg-white/[0.03] border border-white/10 rounded-xl sm:rounded-2xl py-2.5 sm:py-3.5 px-4 sm:px-5 text-[10px] sm:text-xs text-white/80 outline-none appearance-none cursor-pointer focus:border-[#7C1039]/40">
+                        <option value="" className="bg-[#0a0b14]">Todos</option>
+                        <option value="B" className="bg-[#0a0b14]">B</option><option value="D" className="bg-[#0a0b14]">D</option><option value="BD" className="bg-[#0a0b14]">BD</option>
+                    </select>
+                    <div className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/20"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="space-y-14">
-          {isLoading ? (
-            <div className="grid grid-cols-3 gap-3 animate-pulse">
-              {[1,2,3,4,5,6].map(i => <div key={i} className="aspect-[4/5] bg-white/5 rounded-2xl" />)}
-            </div>
-          ) : (
-            groupedItems.map(month => (
-              <div key={month.name}>
-                <div className="sticky top-16 z-20 bg-[#050712]/80 backdrop-blur-md py-4 flex items-baseline gap-3">
-                  <h3 className="text-3xl font-black capitalize text-white">{month.name}</h3>
-                  <span className="text-white/10 font-bold text-lg">{selectedYear}</span>
-                </div>
-                <div className="space-y-10">
-                  {Object.entries(month.days).map(([date, dayItems]) => (
-                    <div key={date}>
-                      <p className="text-[10px] font-black text-[#7C1039] uppercase tracking-[0.2em] mb-4 px-1 flex items-center gap-2">
-                        <span className="w-1 h-1 rounded-full bg-[#7C1039]" />
-                        {date}
-                      </p>
-                      <div className="grid grid-cols-3 gap-2">
-                        {dayItems.map(item => (
-                          <MediaCard 
-                            key={item.id} 
-                            item={item} 
-                            onAction={handleActionStart} 
-                            onClick={handleMediaClick}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+        {/* FEED DE GALERÍA */}
+        <section className="space-y-12 sm:space-y-20 px-1 sm:px-0">
+          {isLoading ? <GallerySkeleton /> : groupedItems.map(month => (
+            <div key={month.name} className="relative">
+              <div className="sticky top-[64px] sm:top-[72px] z-30 mb-6 sm:mb-8 flex items-center gap-3 sm:gap-4 rounded-full border border-white/10 bg-white/[0.03] px-4 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.25)] backdrop-blur-xl">
+                  <div className="h-2.5 w-2.5 rounded-full bg-[#7C1039] shadow-[0_0_12px_rgba(124,16,57,0.55)]" />
+                  <h3 className="text-[13px] sm:text-[16px] font-semibold uppercase tracking-[0.35em] text-white/90">{month.name}</h3>
+                  <span className="text-[10px] sm:text-[11px] font-medium uppercase tracking-[0.25em] text-[#7C1039]">{selectedYear}</span>
+                  <div className="ml-auto h-[1px] flex-1 bg-gradient-to-r from-white/10 via-white/20 to-transparent" />
+                  <span className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.3em] text-white/35">{month.total} items</span>
               </div>
-            ))
+              <div className="space-y-10 sm:space-y-16">
+                {Object.entries(month.days).map(([date, dayItems]) => (
+                  <DaySection key={date} date={date} items={dayItems} onAction={handleActionStart} onClick={handleMediaClick} />
+                ))}
+              </div>
+            </div>
+          ))}
+          {!isLoading && filteredItems.length === 0 && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-32 text-center space-y-6">
+               <div className="text-6xl grayscale opacity-30">📂</div>
+               <p className="text-white/20 font-black uppercase tracking-[0.3em] text-[10px]">Silencio en la cámara... No hay recuerdos aquí.</p>
+            </motion.div>
           )}
-        </div>
+        </section>
       </main>
 
-      {/* Botón flotante para Subir recuerdos (Navegación directa a página) */}
-      <Link 
-        to="/upload" 
-        className="fixed bottom-10 right-8 z-50 w-16 h-16 bg-[#2a0a14] rounded-full flex items-center justify-center shadow-2xl shadow-[#7C1039]/40 hover:scale-110 active:scale-90 transition-all border border-white/10 group"
+      {/* FAB - ACCIÓN PRINCIPAL (Botón de subida redimensionado) */}
+      <Link
+        to="/upload"
+        className="fixed bottom-6 right-6 sm:bottom-10 sm:right-10 z-50 w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-tr from-[#7C1039] to-[#9d1548] rounded-2xl sm:rounded-[2rem] flex items-center justify-center shadow-[0_15px_40px_rgba(124,16,57,0.5)] hover:scale-110 active:scale-90 transition-all border border-white/20 group overflow-hidden"
       >
-        <img src="/assets/images/cereza.png" className="w-8 h-8 drop-shadow-lg group-hover:rotate-12 transition-transform" alt="Upload" />
+        <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+        <img src="/assets/images/cereza.png" className="w-7 h-7 sm:w-8 sm:h-8 drop-shadow-2xl group-hover:rotate-12 transition-transform duration-300" alt="Upload" />
       </Link>
 
-      {/* Modales de Menú y Acción */}
+      {/* MENÚ DE ACCIONES CONTEXTUALES */}
       <AnimatePresence>
-        {actionItem && !isEditing && !isConfirmingDelete && (
-          <div className="fixed inset-0 z-[100] flex items-end justify-center px-4 pb-8">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setActionItem(null)} className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-            <motion.div initial={{ y: 100 }} animate={{ y: 0 }} exit={{ y: 100 }} className="relative w-full max-w-sm bg-[#0a0c1a] border border-white/10 rounded-[32px] overflow-hidden shadow-2xl">
-              <div className="p-6 border-b border-white/5 flex items-center gap-4">
-                <div className="w-16 h-20 rounded-xl overflow-hidden border border-white/10 bg-white/5 flex items-center justify-center">
-                   <img src={apiService.buildFileUrl(actionItem.thumbnail_url ?? actionItem.thumbnail_path ?? actionItem.file_url)} className="w-full h-full object-cover" alt="Preview" />
-                </div>
-                <div><p className="text-white font-bold text-lg line-clamp-1">{actionItem.description || 'Recuerdo'}</p><p className="text-white/40 text-xs">{dayjs(actionItem.taken_at).format('DD MMMM YYYY')}</p></div>
+        {actionItem && (
+          <div className="fixed inset-0 z-[100] flex items-end justify-center px-4 pb-12">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setActionItem(null)} className="absolute inset-0 bg-black/90 backdrop-blur-sm" />
+            <motion.div initial={{ y: 300, scale: 0.9 }} animate={{ y: 0, scale: 1 }} exit={{ y: 300, scale: 0.9 }} className="relative w-full max-w-sm bg-[#0d0e1a] border border-white/10 rounded-[3rem] p-8 shadow-[0_50px_100px_rgba(0,0,0,1)] text-center">
+              <div className="w-24 h-32 mx-auto mb-6 rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
+                 <img src={apiService.buildFileUrl(actionItem.thumbnail_url ?? actionItem.thumbnail_path ?? actionItem.file_url)} className="w-full h-full object-cover" alt="Preview" />
               </div>
-              <div className="p-2 space-y-1">
-                <button onClick={() => { setIsEditing(true); setEditForm({...actionItem}); }} className="flex items-center gap-4 w-full p-4 text-blue-400 hover:bg-white/5 rounded-2xl transition-all">
-                  <span className="font-bold">Editar Recuerdo</span>
-                </button>
-                <button onClick={() => setIsConfirmingDelete(true)} className="flex items-center gap-4 w-full p-4 text-red-500 hover:bg-red-500/5 rounded-2xl transition-all">
-                  <span className="font-bold">Eliminar para siempre</span>
-                </button>
-                <button onClick={() => setActionItem(null)} className="w-full p-4 text-white/20 text-[10px] font-black uppercase tracking-[0.2em]">Cerrar</button>
+              <p className="text-white/90 font-black uppercase tracking-widest text-xs mb-8">{actionItem.description || 'Recuerdo guardado'}</p>
+
+              <div className="grid grid-cols-1 gap-3">
+                <button onClick={() => { setActionItem(null); navigate(`/upload?edit=${actionItem.id}`); }} className="w-full py-5 bg-white/5 hover:bg-white/10 rounded-3xl text-white font-bold transition-all border border-white/5 uppercase tracking-widest text-[10px]">Editar</button>
+                <button onClick={() => { setPendingDeleteItem(actionItem); setIsConfirmingDelete(true); setActionItem(null); }} className="w-full py-5 bg-red-950/30 hover:bg-red-950/50 rounded-3xl text-red-500 font-bold transition-all border border-red-900/20 uppercase tracking-widest text-[10px]">Eliminar</button>
+                <button onClick={() => setActionItem(null)} className="w-full py-5 text-white/20 text-[10px] uppercase tracking-[0.3em] font-black">Cerrar</button>
               </div>
             </motion.div>
           </div>
         )}
 
-        {isConfirmingDelete && actionItem && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsConfirmingDelete(false)} className="absolute inset-0 bg-black/95 backdrop-blur-xl" />
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm bg-[#1a050d] border border-red-900/20 rounded-[40px] p-8 text-center shadow-2xl">
-              <h3 className="text-2xl font-bold text-white mb-2">¿Borrar recuerdo?</h3>
-              <p className="text-white/40 mb-8 text-sm">Esta acción no se puede deshacer.</p>
-              <div className="flex gap-3">
-                <button onClick={() => setIsConfirmingDelete(false)} className="flex-1 py-4 rounded-2xl bg-white/5 text-white font-bold">No</button>
-                <button disabled={loadingAction} onClick={handleExecuteDelete} className="flex-1 py-4 rounded-2xl bg-red-600 text-white font-bold flex items-center justify-center">
-                  {loadingAction ? <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : 'Sí, borrar'}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
+        {isConfirmingDelete && (
+           <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setIsConfirmingDelete(false); setPendingDeleteItem(null); }} className="absolute inset-0 bg-black/95 backdrop-blur-2xl" />
+             <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="relative w-full max-w-sm bg-[#1a050d] border border-red-900/30 rounded-[4rem] p-12 text-center shadow-2xl">
+               <div className="text-5xl mb-6">⚠️</div>
+               <h3 className="text-2xl font-black text-white mb-3 uppercase tracking-tighter">¿Borrar para siempre?</h3>
+               <p className="text-white/40 mb-10 text-[10px] font-medium leading-relaxed uppercase tracking-wider">Este recuerdo desaparecerá de nuestra historia personal.</p>
 
-        {isEditing && editForm && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsEditing(false)} className="absolute inset-0 bg-black/95 backdrop-blur-md" />
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-md bg-[#0a0c1a] border border-white/10 rounded-[40px] p-8 shadow-2xl">
-              <h3 className="text-2xl font-bold text-white mb-6">Editar Recuerdo</h3>
-              <div className="space-y-6">
-                <input type="date" value={dayjs(editForm.taken_at).format('YYYY-MM-DD')} onChange={(e) => setEditForm({ ...editForm, taken_at: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none focus:border-[#7C1039]" />
-                <select value={editForm.tag} onChange={(e) => setEditForm({ ...editForm, tag: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none">
-                  <option value="B">Breese</option><option value="D">Diego</option><option value="BD">Ambos</option>
-                </select>
-                <textarea rows={3} value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none resize-none" />
-                <div className="flex gap-3 pt-4">
-                  <button onClick={() => setIsEditing(false)} className="flex-1 py-4 rounded-2xl bg-white/5 text-white font-bold">Cancelar</button>
-                  <button onClick={handleUpdate} className="flex-1 py-4 rounded-2xl bg-[#7C1039] text-white font-bold">Guardar</button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
+               {pendingDeleteItem && (
+                 <div className="w-20 h-28 mx-auto mb-6 rounded-xl overflow-hidden border border-red-900/20">
+                   <img src={apiService.buildFileUrl(pendingDeleteItem.thumbnail_url ?? pendingDeleteItem.thumbnail_path ?? pendingDeleteItem.file_url)} className="w-full h-full object-cover" alt="" />
+                 </div>
+               )}
+
+               <div className="grid grid-cols-2 gap-4">
+                 <button onClick={() => { setIsConfirmingDelete(false); setPendingDeleteItem(null); }} className="py-5 rounded-3xl bg-white/5 text-white font-bold uppercase text-[10px] tracking-widest">No</button>
+                 <button disabled={loadingAction} onClick={handleExecuteDelete} className="py-5 rounded-3xl bg-red-600 text-white font-black uppercase text-[10px] tracking-widest flex items-center justify-center shadow-xl shadow-red-600/20">
+                   {loadingAction ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : 'Sí, borrar'}
+                 </button>
+               </div>
+             </motion.div>
+           </div>
         )}
       </AnimatePresence>
+      </div>
     </div>
   );
 };

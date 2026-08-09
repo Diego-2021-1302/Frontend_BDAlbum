@@ -1,18 +1,31 @@
 import { create } from 'zustand';
 import { User } from '../types';
-import { DEFAULT_API_BASE_URL, getPersistedBaseUrl, setPersistedBaseUrl, fetchGlobalBaseUrl, updateGlobalBaseUrl } from '../config/apiConfig';
+import {
+    DEFAULT_API_BASE_URL,
+    getPersistedBaseUrl,
+    setPersistedBaseUrl,
+    fetchGlobalBaseUrl,
+    updateGlobalBaseUrl,
+    getPersistedMediaUrl,
+    setPersistedMediaUrl,
+    fetchLocalNodosConfig
+} from '../config/apiConfig';
 
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
   lastUser: string;
   baseUrl: string;
-  isUpdatingGlobal: boolean; // Bandera para evitar rebotes de URL vieja
+  mediaUrl: string;
+  uploadUrl: string;
+  videoUrl: string;
+  isUpdatingGlobal: boolean;
   setBaseUrl: (url: string) => void;
-  saveGlobalConfig: (url: string) => Promise<boolean>;
+  saveGlobalConfig: (config: {api: string, media: string, upload: string, video: string}) => Promise<boolean>;
   login: (userData: User, token: string, url?: string) => Promise<void>;
   logout: () => void;
   fetchGlobalConfig: () => Promise<void>;
+  fetchLocalConfig: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => {
@@ -24,6 +37,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
     isAuthenticated: !!token,
     lastUser: lastUser,
     baseUrl: getPersistedBaseUrl(),
+    mediaUrl: getPersistedMediaUrl(),
+    uploadUrl: localStorage.getItem('upload_url') || '',
+    videoUrl: localStorage.getItem('video_url') || '',
     isUpdatingGlobal: false,
 
     setBaseUrl: (url) => {
@@ -31,36 +47,90 @@ export const useAuthStore = create<AuthState>((set, get) => {
       set({ baseUrl: cleanUrl });
     },
 
-    saveGlobalConfig: async (url) => {
-      const cleanUrl = setPersistedBaseUrl(url);
-      set({ baseUrl: cleanUrl, isUpdatingGlobal: true });
+    saveGlobalConfig: async (config) => {
+      const cleanApi = setPersistedBaseUrl(config.api);
+      localStorage.setItem('media_url', config.media);
+      localStorage.setItem('upload_url', config.upload);
+      localStorage.setItem('video_url', config.video);
 
-      console.log('🚀 Enviando nueva URL a la fuente de verdad (Redis):', cleanUrl);
-      const success = await updateGlobalBaseUrl(cleanUrl);
+      set({
+          baseUrl: cleanApi,
+          mediaUrl: config.media,
+          uploadUrl: config.upload,
+          videoUrl: config.video,
+          isUpdatingGlobal: true
+      });
 
-      // Esperamos un poco antes de permitir que fetchGlobalConfig vuelva a actuar
+      const success = await updateGlobalBaseUrl(config);
       setTimeout(() => set({ isUpdatingGlobal: false }), 5000);
       return success;
     },
 
+    fetchLocalConfig: async () => {
+      try {
+        const data = await fetchLocalNodosConfig();
+        if (data) {
+          const { baseUrl, mediaUrl, uploadUrl, videoUrl } = data;
+          if (baseUrl) setPersistedBaseUrl(baseUrl);
+          if (mediaUrl) localStorage.setItem('media_url', mediaUrl);
+          if (uploadUrl) localStorage.setItem('upload_url', uploadUrl);
+          if (videoUrl) localStorage.setItem('video_url', videoUrl);
+
+          // PRE-CONEXIÓN INMEDIATA: Preparar los túneles en cuanto se conocen
+          [baseUrl, mediaUrl, videoUrl].forEach(url => {
+            if (url) {
+                const link = document.createElement('link');
+                link.rel = 'preconnect';
+                link.href = url;
+                link.crossOrigin = 'anonymous';
+                document.head.appendChild(link);
+            }
+          });
+
+          set({ baseUrl, mediaUrl, uploadUrl, videoUrl });
+          console.log('✅ Red distribuida lista y pre-conectada');
+        }
+      } catch (e) {
+        console.error('No se pudo autocompletar localmente');
+      }
+    },
+
     fetchGlobalConfig: async () => {
-      // Si estamos en medio de una actualización local, no dejamos que la nube nos pise
       if (get().isUpdatingGlobal) return;
 
       try {
         const data = await fetchGlobalBaseUrl();
         if (!data) return;
 
-        const configUrl = typeof data === 'string' ? data : (data as any).baseUrl;
+        const { baseUrl, mediaUrl, uploadUrl, videoUrl } = data;
 
-        if (configUrl && configUrl.trim() !== "") {
-          const currentLocal = getPersistedBaseUrl();
-          if (configUrl !== currentLocal) {
-            console.log('🔄 Sincronizando: La nube tiene una URL más nueva:', configUrl);
-            setPersistedBaseUrl(configUrl);
-            set({ baseUrl: configUrl });
-          }
+        if (baseUrl && baseUrl !== get().baseUrl) {
+          setPersistedBaseUrl(baseUrl);
+          set({ baseUrl });
         }
+        if (mediaUrl && mediaUrl !== get().mediaUrl) {
+          setPersistedMediaUrl(mediaUrl);
+          set({ mediaUrl });
+        }
+        if (uploadUrl && uploadUrl !== get().uploadUrl) {
+          localStorage.setItem('upload_url', uploadUrl);
+          set({ uploadUrl });
+        }
+        if (videoUrl && videoUrl !== get().videoUrl) {
+          localStorage.setItem('video_url', videoUrl);
+          set({ videoUrl });
+        }
+
+        // Reforzar pre-conexión tras sincronización global
+        [baseUrl, mediaUrl, videoUrl].forEach(url => {
+          if (url && !document.querySelector(`link[href="${url}"]`)) {
+            const link = document.createElement('link');
+            link.rel = 'preconnect';
+            link.href = url;
+            link.crossOrigin = 'anonymous';
+            document.head.appendChild(link);
+          }
+        });
       } catch (e) {
         console.error('Error sincronizando configuración:', e);
       }
@@ -70,9 +140,6 @@ export const useAuthStore = create<AuthState>((set, get) => {
       const currentUrl = (url || get().baseUrl).trim().replace(/\/$/, '');
       localStorage.setItem('auth_token', token);
       localStorage.setItem('last_user', userData.username);
-
-      // Al loguearnos, nos aseguramos de que esta URL sea la global
-      await get().saveGlobalConfig(currentUrl);
 
       set({
         user: userData,
@@ -88,12 +155,3 @@ export const useAuthStore = create<AuthState>((set, get) => {
     },
   };
 });
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (event) => {
-    if (event.key === 'api_base_url' && event.newValue) {
-      const cleanUrl = event.newValue.trim().replace(/\/$/, '') || DEFAULT_API_BASE_URL;
-      useAuthStore.setState({ baseUrl: cleanUrl });
-    }
-  });
-}
