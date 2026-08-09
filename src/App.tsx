@@ -31,24 +31,28 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 };
 
 const PageLoader = () => (
-  <div className="min-h-screen bg-[#050712] flex items-center justify-center">
-    <div className="w-12 h-12 border-4 border-[#7C1039]/20 border-t-[#7C1039] rounded-full animate-spin" />
+  <div className="min-h-screen bg-dark flex items-center justify-center">
+    <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
   </div>
 );
 
 const App: React.FC = () => {
   const fetchGlobalConfig = useAuthStore((state) => state.fetchGlobalConfig);
+  const fetchLocalConfig = useAuthStore((state) => state.fetchLocalConfig);
 
   useEffect(() => {
     const load = async () => {
       try {
+        // Primero intentar autocompletar desde el archivo local generado por el orquestador
+        await fetchLocalConfig();
+        // Luego sincronizar con la configuración global (backend)
         await fetchGlobalConfig();
       } catch (error) {
-        console.error('Error cargando configuración global:', error);
+        console.error('Error cargando configuración de nodos o global:', error);
       }
     };
     load();
-  }, [fetchGlobalConfig]);
+  }, [fetchGlobalConfig, fetchLocalConfig]);
 
   return (
     <QueryClientProvider client={queryClient}>

@@ -89,6 +89,18 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
           set({ baseUrl, mediaUrl, uploadUrl, videoUrl });
           console.log('✅ Red distribuida lista y pre-conectada');
+
+          // Intento de sincronizar inmediatamente con el backend (POST a /api/config-url)
+          try {
+            set({ isUpdatingGlobal: true });
+            const success = await updateGlobalBaseUrl({ api: baseUrl, media: mediaUrl || '', upload: uploadUrl || '', video: videoUrl || '' });
+            if (success) console.log('🔁 Backend sincronizado con nuevas URLs de túnel');
+            else console.warn('⚠️ No se pudo sincronizar backend con las URLs locales');
+          } catch (err) {
+            console.error('Error sincronizando backend desde config local:', err);
+          } finally {
+            set({ isUpdatingGlobal: false });
+          }
         }
       } catch (e) {
         console.error('No se pudo autocompletar localmente');

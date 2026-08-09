@@ -88,7 +88,7 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#050712] text-white flex flex-col items-center justify-center p-6 font-sans relative overflow-hidden">
+    <div className="min-h-screen bg-dark text-white flex flex-col items-center justify-center p-6 font-sans relative overflow-hidden">
       
       <motion.img
         initial={{ opacity: 0, x: -100, rotate: -20 }}
@@ -136,7 +136,7 @@ const Login: React.FC = () => {
           ) : (
             <motion.div key="pin" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col items-center">
               <div className="text-center mb-8">
-                <p className="text-[#7C1039] text-xs font-bold uppercase tracking-widest mb-1">{identity}</p>
+                <p className="text-primary text-xs font-bold uppercase tracking-widest mb-1">{identity}</p>
                 <button onClick={() => setStep('user')} className="text-white/30 text-[10px] hover:text-white/60 transition-colors">Cambiar usuario</button>
               </div>
 
@@ -145,14 +145,14 @@ const Login: React.FC = () => {
                   <motion.div 
                     key={i}
                     animate={pin.length > i ? { scale: [1, 1.2, 1] } : {}}
-                    className={`w-4 h-4 rounded-full border-2 transition-all duration-300 ${pin.length > i ? 'bg-[#7C1039] border-[#7C1039]' : 'border-white/10'}`}
+                    className={`w-4 h-4 rounded-full border-2 transition-all duration-300 ${pin.length > i ? 'bg-primary border-primary' : 'border-white/10'}`}
                   />
                 ))}
               </div>
 
               {error && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-red-500 text-[10px] font-bold uppercase mb-6 tracking-widest">{error}</motion.p>}
 
-              <div className="grid grid-cols-3 gap-5 w-full max-w-[280px]">
+              <div className="grid grid-cols-3 gap-5 w-full max-w-70">
                 {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(num => (
                   <button key={num} onClick={() => handleNumberClick(num)} className="aspect-square rounded-full bg-white/5 border border-white/5 text-2xl font-light hover:bg-white/10 active:scale-90 transition-all flex items-center justify-center">{num}</button>
                 ))}
@@ -164,7 +164,7 @@ const Login: React.FC = () => {
               <button
                 onClick={handleLogin}
                 disabled={loading || pin.length < 4}
-                className="w-full bg-[#7C1039] text-white font-bold py-4 rounded-2xl mt-12 active:scale-95 disabled:opacity-30 transition-all flex justify-center items-center shadow-lg shadow-[#7C1039]/20"
+                className="w-full bg-primary text-white font-bold py-4 rounded-2xl mt-12 active:scale-95 disabled:opacity-30 transition-all flex justify-center items-center shadow-lg shadow-primary/20"
               >
                 {loading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : 'Acceder'}
               </button>
@@ -187,19 +187,19 @@ const Login: React.FC = () => {
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
               <div className="bg-white/5 backdrop-blur-md rounded-3xl border border-white/5 p-6 mt-2 space-y-4">
                 <div className="space-y-1">
-                  <label className="text-[9px] text-[#7C1039] font-black uppercase ml-1">API Backend (8001)</label>
+                  <label className="text-[9px] text-primary font-black uppercase ml-1">API Backend (8001)</label>
                   <input type="text" value={tempConfig.api} onChange={e => setTempConfig({...tempConfig, api: e.target.value})} className="w-full bg-black/20 border border-white/5 rounded-xl py-3 px-4 text-xs text-white outline-none" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] text-[#7C1039] font-black uppercase ml-1">Media Server - Fotos (8002)</label>
+                  <label className="text-[9px] text-primary font-black uppercase ml-1">Media Server - Fotos (8002)</label>
                   <input type="text" value={tempConfig.media} onChange={e => setTempConfig({...tempConfig, media: e.target.value})} className="w-full bg-black/20 border border-white/5 rounded-xl py-3 px-4 text-xs text-white outline-none" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] text-[#7C1039] font-black uppercase ml-1">Upload Server (8003)</label>
+                  <label className="text-[9px] text-primary font-black uppercase ml-1">Upload Server (8003)</label>
                   <input type="text" value={tempConfig.upload} onChange={e => setTempConfig({...tempConfig, upload: e.target.value})} className="w-full bg-black/20 border border-white/5 rounded-xl py-3 px-4 text-xs text-white outline-none" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] text-[#7C1039] font-black uppercase ml-1">Video Streaming (8004)</label>
+                  <label className="text-[9px] text-primary font-black uppercase ml-1">Video Streaming (8004)</label>
                   <input type="text" value={tempConfig.video} onChange={e => setTempConfig({...tempConfig, video: e.target.value})} className="w-full bg-black/20 border border-white/5 rounded-xl py-3 px-4 text-xs text-white outline-none" />
                 </div>
                 <button onClick={() => saveGlobalConfig(tempConfig).then(() => setShowConfig(false))} className="w-full bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold uppercase py-3 rounded-xl transition-all">Guardar Configuración</button>
