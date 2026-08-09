@@ -116,10 +116,24 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
         const { baseUrl, mediaUrl, uploadUrl, videoUrl } = data;
 
-        if (baseUrl && baseUrl !== get().baseUrl) {
-          setPersistedBaseUrl(baseUrl);
-          set({ baseUrl });
+        // VERIFICACIÓN CRÍTICA: ¿Ha cambiado el túnel de Cloudflare?
+        const currentStoredBaseUrl = get().baseUrl;
+
+        if (baseUrl && baseUrl !== currentStoredBaseUrl) {
+           console.warn('⚠️ Se detectaron nuevas URLs de Cloudflare. El túnel anterior ha caducado.');
+
+           // Si el usuario estaba autenticado, forzamos logout para re-sincronizar con el nuevo backend
+           if (get().isAuthenticated) {
+              console.log('🔒 Forzando cierre de sesión por cambio de infraestructura...');
+              localStorage.removeItem('auth_token');
+              set({ user: null, isAuthenticated: false });
+           }
+
+           // Actualizamos las nuevas URLs antes de ir al Login
+           setPersistedBaseUrl(baseUrl);
+           set({ baseUrl });
         }
+
         if (mediaUrl && mediaUrl !== get().mediaUrl) {
           setPersistedMediaUrl(mediaUrl);
           set({ mediaUrl });
