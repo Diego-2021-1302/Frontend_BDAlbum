@@ -1,7 +1,6 @@
 import Redis from 'ioredis';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-// Usamos una variable global para reutilizar la conexión en Vercel (evita agotar conexiones)
 let redis: Redis | null = null;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -15,37 +14,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const redisUrl = process.env.REDIS_URL || process.env.KV_URL;
 
   if (!redisUrl) {
-    return res.status(500).json({
-      error: 'No se encontró REDIS_URL',
-      debug: Object.keys(process.env).filter(k => k.includes('URL') || k.includes('REDIS'))
-    });
+    return res.status(500).json({ error: 'No se encontró REDIS_URL' });
   }
 
-  // Inicializar cliente si no existe
   if (!redis) {
-    redis = new Redis(redisUrl, {
-      connectTimeout: 10000,
-      maxRetriesPerRequest: 1
-    });
+    redis = new Redis(redisUrl, { connectTimeout: 10000, maxRetriesPerRequest: 1 });
   }
 
-  const KEY = 'backend_url';
+  const KEY = 'full_config';
 
   try {
     if (req.method === 'GET') {
       const saved = await redis.get(KEY);
-      return res.status(200).json({ baseUrl: saved || "" });
+      if (saved) {
+        return res.status(200).json(JSON.parse(saved));
+      }
+      return res.status(200).json({ baseUrl: "", mediaUrl: "", uploadUrl: "", videoUrl: "" });
     }
 
     if (req.method === 'POST') {
-      const { baseUrl } = req.body;
+      const { baseUrl, mediaUrl, uploadUrl, videoUrl } = req.body;
       if (!baseUrl) return res.status(400).json({ error: 'Falta baseUrl' });
-      const cleanUrl = baseUrl.trim().replace(/\/$/, '');
-      await redis.set(KEY, cleanUrl);
-      return res.status(200).json({ success: true, baseUrl: cleanUrl });
+
+      const config = {
+        baseUrl: baseUrl.trim().replace(/\/$/, ''),
+        mediaUrl: (mediaUrl || '').trim().replace(/\/$/, ''),
+        uploadUrl: (uploadUrl || '').trim().replace(/\/$/, ''),
+        videoUrl: (videoUrl || '').trim().replace(/\/$/, '')
+      };
+
+      await redis.set(KEY, JSON.stringify(config));
+      return res.status(200).json({ success: true, config });
     }
   } catch (err: any) {
-    console.error('Error Redis:', err.message);
-    return res.status(500).json({ error: 'Error de conexión Redis', details: err.message });
+    return res.status(500).json({ error: 'Error Redis', details: err.message });
   }
 }

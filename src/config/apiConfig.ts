@@ -42,7 +42,24 @@ export async function fetchLocalNodosConfig(): Promise<{baseUrl: string, mediaUr
 
 export async function fetchGlobalBaseUrl(currentBaseUrl?: string): Promise<{baseUrl: string, mediaUrl: string, uploadUrl: string, videoUrl: string} | null> {
   try {
-    const host = currentBaseUrl || getPersistedBaseUrl() || window.location.origin;
+    // Si estamos en Vercel, primero intentamos consultar nuestro propio endpoint de descubrimiento (Redis)
+    const isVercel = window.location.hostname.includes('vercel.app');
+    let host = currentBaseUrl || getPersistedBaseUrl();
+
+    if (isVercel && !currentBaseUrl) {
+      // Forzamos consulta a Vercel si no se especificó un host y estamos en vercel
+      const vercelResp = await fetch(`${window.location.origin}/api/config-url?t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+      });
+      if (vercelResp.ok) {
+        const vercelData = await vercelResp.json();
+        if (vercelData.baseUrl) return vercelData;
+      }
+    }
+
+    // Fallback al host guardado o al origen actual
+    host = host || window.location.origin;
     const response = await fetch(`${host}/api/config-url?t=${Date.now()}`, {
       cache: 'no-store',
       headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
@@ -64,6 +81,8 @@ export async function fetchGlobalBaseUrl(currentBaseUrl?: string): Promise<{base
 export async function updateGlobalBaseUrl(config: {api: string, media: string, upload: string, video: string}): Promise<boolean> {
   try {
     const host = config.api || getPersistedBaseUrl() || window.location.origin;
+
+    // 1. Actualizar el Backend (Túnel actual)
     const response = await fetch(`${host}/api/config-url`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -74,6 +93,21 @@ export async function updateGlobalBaseUrl(config: {api: string, media: string, u
           videoUrl: config.video
       })
     });
+
+    // 2. Si estamos en Vercel, sincronizar también el descubrimiento (Redis)
+    if (window.location.hostname.includes('vercel.app')) {
+      await fetch(`${window.location.origin}/api/config-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            baseUrl: config.api,
+            mediaUrl: config.media,
+            uploadUrl: config.upload,
+            videoUrl: config.video
+        })
+      }).catch(e => console.warn('No se pudo sincronizar Redis de Vercel:', e));
+    }
+
     return response.ok;
   } catch (error) {
     console.log('No se pudo actualizar config-url:', error);
