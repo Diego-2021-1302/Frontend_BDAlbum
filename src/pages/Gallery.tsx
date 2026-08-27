@@ -169,6 +169,170 @@ const DaySection = React.memo(({ date, items, onAction, onClick }: {
   );
 });
 
+// ── CONTADOR DE TIEMPO PREMIUM ──────────────────────────────────
+const LoveCounter = () => {
+  const startDate = dayjs('2026-08-16 22:05');
+  const [now, setNow] = useState(dayjs());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(dayjs()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const years = now.diff(startDate, 'year');
+  const months = now.diff(startDate, 'month') % 12;
+
+  // Cálculo de días basado en calendario para evitar el desfase de 24h
+  const days = now.startOf('day').diff(startDate.startOf('day'), 'day');
+
+  const hours = now.diff(startDate, 'hour') % 24;
+  const minutes = now.diff(startDate, 'minute') % 60;
+  const seconds = now.diff(startDate, 'second') % 60;
+
+  const stats = [
+    { label: 'Años', val: years },
+    { label: 'Meses', val: months },
+    { label: 'Días', val: days },
+    { label: 'Hrs', val: hours },
+    { label: 'Min', val: minutes },
+    { label: 'Seg', val: seconds },
+  ];
+
+  return (
+    <div className="w-full px-4 pt-4 pb-2 relative z-40">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-2xl mx-auto relative group"
+      >
+        {/* Glow de Fondo Estético */}
+        <div className="absolute -inset-2 bg-gradient-to-r from-[#7C1039]/10 via-transparent to-[#7C1039]/10 rounded-[2.5rem] blur-3xl opacity-50 group-hover:opacity-80 transition duration-1000"></div>
+
+        {/* Contenedor Flotante Premium con Borde Animado Secuencial */}
+        <div className="relative bg-[#0a0b14]/70 backdrop-blur-3xl rounded-[2.2rem] p-6 sm:p-8 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.8)] overflow-hidden border border-white/[0.05]">
+
+          {/* Border Beam Effect (Luxury Shimmer) */}
+          <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-[2.2rem]">
+            <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="beamGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="transparent" />
+                  <stop offset="50%" stopColor="#7C1039" />
+                  <stop offset="100%" stopColor="transparent" />
+                </linearGradient>
+              </defs>
+
+              {/* Soft Outer Glow */}
+              <motion.rect
+                x="0" y="0" width="100" height="100" rx="8"
+                fill="none"
+                stroke="url(#beamGradient)"
+                strokeWidth="3"
+                initial={{ pathLength: 0.2, pathOffset: 0, opacity: 0 }}
+                animate={{
+                  pathOffset: [0, 1],
+                  opacity: [0, 0.3, 0.3, 0]
+                }}
+                transition={{
+                  duration: 8,
+                  repeat: Infinity,
+                  ease: "linear",
+                  times: [0, 0.1, 0.9, 1]
+                }}
+                style={{ filter: 'blur(5px)' }}
+              />
+
+              {/* Precise Light Core */}
+              <motion.rect
+                x="0" y="0" width="100" height="100" rx="8"
+                fill="none"
+                stroke="url(#beamGradient)"
+                strokeWidth="0.6"
+                initial={{ pathLength: 0.15, pathOffset: 0, opacity: 0 }}
+                animate={{
+                  pathOffset: [0, 1],
+                  opacity: [0, 1, 1, 0]
+                }}
+                transition={{
+                  duration: 8,
+                  repeat: Infinity,
+                  ease: "linear",
+                  times: [0, 0.1, 0.9, 1]
+                }}
+              />
+            </svg>
+          </div>
+
+          <div className="flex flex-col gap-6 relative z-10">
+            {/* Header: Romanticismo & Contexto */}
+            <div className="flex items-center justify-between border-b border-white/5 pb-5">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1a1b26] to-[#050712] border border-white/10 flex items-center justify-center shadow-lg relative">
+                  <span className="text-[#7C1039] font-serif italic text-base tracking-tighter select-none">BD</span>
+                  {/* Glow interno del logo */}
+                  <div className="absolute inset-0 rounded-full bg-[#7C1039]/5 blur-sm"></div>
+                </div>
+                <div className="flex flex-col">
+                  <h3 className="text-[10px] font-black tracking-[0.4em] text-[#7C1039] uppercase select-none">Nuestro Eterno Comienzo</h3>
+                  <p className="text-[9px] text-white/40 font-medium tracking-tight">16 de Agosto • El día que todo cambió</p>
+                </div>
+              </div>
+
+              {/* Status "Live" Premium */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#7C1039]/5 border border-[#7C1039]/20">
+                <div className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7C1039] opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#7C1039]"></span>
+                </div>
+                <span className="text-[8px] font-black text-[#7C1039] uppercase tracking-widest hidden xs:block">Latido a Latido</span>
+              </div>
+            </div>
+
+            {/* Grid del Contador: Tipografía de Lujo */}
+            <div className="grid grid-cols-3 sm:grid-cols-6 items-center gap-y-4 sm:gap-x-0">
+              {stats.map((item, index) => (
+                <div key={item.label} className="flex flex-col items-center relative group/item">
+                  <div className="h-10 sm:h-12 flex items-center justify-center">
+                    <AnimatePresence mode="popLayout">
+                      <motion.span
+                        key={item.val}
+                        initial={{ opacity: 0, y: 15, filter: 'blur(8px)' }}
+                        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                        exit={{ opacity: 0, y: -15, filter: 'blur(8px)' }}
+                        transition={{
+                          type: "spring",
+                          stiffness: 450,
+                          damping: 30
+                        }}
+                        className={`text-2xl sm:text-4xl font-black tabular-nums tracking-tighter ${item.label === 'Seg' ? 'text-[#7C1039] drop-shadow-[0_0_15px_rgba(124,16,57,0.5)]' : 'text-white'}`}
+                      >
+                        {item.val}
+                      </motion.span>
+                    </AnimatePresence>
+                  </div>
+
+                  <span className="text-[7px] sm:text-[9px] font-black text-white/20 uppercase tracking-[0.3em] mt-1 group-hover/item:text-white/40 transition-colors select-none">
+                    {item.label}
+                  </span>
+
+                  {/* Separador vertical sutil */}
+                  {index < stats.length - 1 && (
+                    <div className="hidden sm:block absolute -right-[1px] top-1/2 -translate-y-1/2 h-8 w-[1px] bg-gradient-to-b from-transparent via-white/10 to-transparent" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Efecto de Luces Perimetrales Secuenciales (Esquinas) */}
+          <div className="absolute top-0 left-0 w-20 h-[1px] bg-gradient-to-r from-transparent to-[#7C1039]/40"></div>
+          <div className="absolute bottom-0 right-0 w-20 h-[1px] bg-gradient-to-l from-transparent to-[#7C1039]/40"></div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 const Gallery: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -221,7 +385,9 @@ const Gallery: React.FC = () => {
   const filteredItems = useMemo(() => {
     const s = search.toLowerCase();
     return items.filter(item => {
-      const date = dayjs(item.taken_at);
+      // Usar solo la parte de la fecha para evitar desfases de zona horaria
+      const dateStr = item.taken_at.split('T')[0];
+      const date = dayjs(dateStr);
       return date.year() === selectedYear &&
              (!selectedTag || item.tag === selectedTag) &&
              (!search || (item.description?.toLowerCase().includes(s) || item.tag.toLowerCase().includes(s)));
@@ -231,7 +397,8 @@ const Gallery: React.FC = () => {
   const groupedItems = useMemo(() => {
     const months: Record<string, GroupedMonth> = {};
     filteredItems.forEach(item => {
-      const dObj = dayjs(item.taken_at);
+      const dateStr = item.taken_at.split('T')[0];
+      const dObj = dayjs(dateStr);
       const mName = dObj.format('MMMM');
       const dKey = dObj.format('DD/MM/YYYY');
       if (!months[mName]) months[mName] = { name: mName, days: {}, total: 0 };
@@ -324,6 +491,8 @@ const Gallery: React.FC = () => {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
         </button>
       </header>
+
+      <LoveCounter />
 
       <main className="relative max-w-5xl mx-auto px-4 sm:px-6 mt-4 sm:mt-8 w-full">
         {/* HERO SECTION - REDISEÑO TOTAL */}

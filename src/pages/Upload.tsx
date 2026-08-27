@@ -151,7 +151,10 @@ const Upload: React.FC = () => {
         if (!active) return;
         setDescription(item.description || '');
         setTag(item.tag || 'B');
-        setDate(dayjs(item.taken_at).format('YYYY-MM-DD'));
+
+        // Corregir desfase de fecha: tomar solo la parte YYYY-MM-DD
+        const dateStr = item.taken_at.split('T')[0];
+        setDate(dateStr);
 
         const previewUrl = apiService.buildFileUrl(
           item.thumbnail_url ?? item.thumbnail_path ?? item.file_url,
