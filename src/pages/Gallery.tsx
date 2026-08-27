@@ -182,8 +182,12 @@ const LoveCounter = () => {
   const years = now.diff(startDate, 'year');
   const months = now.diff(startDate, 'month') % 12;
 
-  // Cálculo de días basado en calendario para evitar el desfase de 24h
-  const days = now.startOf('day').diff(startDate.startOf('day'), 'day');
+  // Ajuste de días desglosados basado en calendario para coincidir con el Total
+  const referenceForDays = startDate.add(years, 'year').add(months, 'month');
+  const days = now.startOf('day').diff(referenceForDays.startOf('day'), 'day');
+
+  // Total de días absoluto (calendario)
+  const totalDays = now.startOf('day').diff(startDate.startOf('day'), 'day');
 
   const hours = now.diff(startDate, 'hour') % 24;
   const minutes = now.diff(startDate, 'minute') % 60;
@@ -274,7 +278,7 @@ const LoveCounter = () => {
                 </div>
                 <div className="flex flex-col">
                   <h3 className="text-[10px] font-black tracking-[0.4em] text-[#7C1039] uppercase select-none">Nuestro Eterno Comienzo</h3>
-                  <p className="text-[9px] text-white/40 font-medium tracking-tight">16 de Agosto • El día que todo cambió</p>
+                  <p className="text-[9px] text-white/40 font-medium tracking-tight">Domingo 16 agosto 2026 a la 10:05 p.m.</p>
                 </div>
               </div>
 
@@ -321,6 +325,17 @@ const LoveCounter = () => {
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Resultados Totales debajo del Grid */}
+          <div className="mt-6 pt-4 border-t border-white/5 flex justify-center items-center gap-4 relative z-10">
+            <div className="flex items-center gap-2">
+              <div className="h-1 w-1 rounded-full bg-[#7C1039] animate-pulse"></div>
+              <span className="text-[8px] sm:text-[10px] font-black text-white/30 uppercase tracking-[0.4em]">Total de Días</span>
+            </div>
+            <div className="text-sm sm:text-xl font-black text-[#7C1039] drop-shadow-[0_0_10px_rgba(124,16,57,0.3)] tabular-nums">
+              {totalDays}
             </div>
           </div>
 
