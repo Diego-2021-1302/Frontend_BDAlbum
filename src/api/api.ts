@@ -2,13 +2,14 @@ import axios, { AxiosProgressEvent, AxiosResponse, InternalAxiosRequestConfig } 
 import { MediaItem, AuthResponse, User } from '../types';
 import { useAuthStore } from '../store/authStore';
 
-const getBaseUrl = () => {
-  return useAuthStore.getState().baseUrl;
-};
+const getBaseUrl = () => useAuthStore.getState().baseUrl;
+const fileUrlCache = new Map<string, string>();
+let mediaRequestPromise: Promise<MediaItem[]> | null = null;
 
 const api = axios.create({
   maxBodyLength: Infinity,
   maxContentLength: Infinity,
+  timeout: 15000,
 });
 
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
@@ -34,7 +35,20 @@ export const apiService = {
   },
 
   fetchMedia: async (): Promise<MediaItem[]> => {
-    const response = await api.get<MediaItem[]>('/api/media');
+    if (!mediaRequestPromise) {
+      mediaRequestPromise = api
+        .get<MediaItem[]>('/api/media')
+        .then((response) => response.data)
+        .finally(() => {
+          mediaRequestPromise = null;
+        });
+    }
+
+    return mediaRequestPromise;
+  },
+
+  unlockPrivateMedia: async (pin: string): Promise<{ items: MediaItem[]; private_access_token: string }> => {
+    const response = await api.post('/api/media/private-access', { pin });
     return response.data;
   },
 
@@ -124,13 +138,17 @@ export const apiService = {
     }
   },
 
-  updateMedia: async (id: number, data: Partial<MediaItem>): Promise<MediaItem> => {
-    const response = await api.put<MediaItem>(`/api/media/${id}`, data);
+  updateMedia: async (id: number, data: Partial<MediaItem>, privateAccessToken?: string): Promise<MediaItem> => {
+    const response = await api.put<MediaItem>(`/api/media/${id}`, data, {
+      params: privateAccessToken ? { private_access: privateAccessToken } : undefined,
+    });
     return response.data;
   },
 
-  deleteMedia: async (id: number): Promise<void> => {
-    await api.delete(`/api/media/${id}`);
+  deleteMedia: async (id: number, privateAccessToken?: string): Promise<void> => {
+    await api.delete(`/api/media/${id}`, {
+      params: privateAccessToken ? { private_access: privateAccessToken } : undefined,
+    });
   },
 
   regenerateAllMedia: async (): Promise<{ success: boolean; message: string }> => {
@@ -180,27 +198,40 @@ export const apiService = {
    * - /videos/ y /hls/ -> Nodo 8004
    * - /images/ -> Nodo 8002
    */
-  buildFileUrl: (path: string | undefined | null, type?: 'image' | 'video'): string => {
+  prefetchMediaUrl: (path: string | undefined | null, type?: 'image' | 'video') => {
+    const url = apiService.buildFileUrl(path, type);
+    if (!url) return;
+
+    const preloadResource = new Image();
+    preloadResource.decoding = 'async';
+    preloadResource.src = url;
+  },
+
+  buildFileUrl: (path: string | undefined | null, type?: 'image' | 'video', privateAccessToken?: string): string => {
     if (!path) return '';
-    
+
     const { baseUrl, mediaUrl, videoUrl } = useAuthStore.getState();
 
     let p = path.trim();
     if (p.startsWith('http') || p.startsWith('blob:')) return p;
     if (p.startsWith('/')) p = p.slice(1);
 
-    // ANALISIS POR RUTA (Estructura de Carpetas)
-    const isVideoAsset = p.includes('videos/') ||
-                         p.includes('hls/') ||
-                         p.includes('thumbnails/video/') ||
-                         type === 'video';
+    const cacheKey = `${p}|${type ?? 'auto'}|${mediaUrl || ''}|${videoUrl || ''}|${baseUrl || ''}|${privateAccessToken || ''}`;
+    const cachedUrl = fileUrlCache.get(cacheKey);
+    if (cachedUrl) return cachedUrl;
 
-    // Node 8004: Todo lo que esté en videos/ o hls/
-    // Node 8002: Todo lo que esté en images/ o thumbnails/image/
+    const isVideoAsset = p.includes('videos/') ||
+      p.includes('hls/') ||
+      p.includes('thumbnails/video/') ||
+      type === 'video';
+
     const effectiveBase = isVideoAsset ? (videoUrl || baseUrl) : (mediaUrl || baseUrl);
     const cleanPath = p.replace(/^(storage\/|public\/|media\/|api\/media-file\/)/g, '');
-    
-    return `${effectiveBase.replace(/\/$/, '')}/api/media-file/${cleanPath}`;
+    const accessQuery = privateAccessToken ? `?private_access=${encodeURIComponent(privateAccessToken)}` : '';
+    const finalUrl = `${effectiveBase.replace(/\/$/, '')}/api/media-file/${cleanPath}${accessQuery}`;
+
+    fileUrlCache.set(cacheKey, finalUrl);
+    return finalUrl;
   },
 };
 

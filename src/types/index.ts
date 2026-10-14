@@ -15,6 +15,7 @@ export interface MediaItem {
   hls_url?: string | null;
   thumbnail_url?: string | null;
   file_url?: string | null;
+  private_access_token?: string;
 }
 
 export interface User {

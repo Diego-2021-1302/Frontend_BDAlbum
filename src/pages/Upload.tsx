@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiService } from '../api/api';
 import { useAuthStore } from '../store/authStore';
@@ -7,11 +7,14 @@ import { extractExifDate } from '../utils/exifExtractor';
 import { motion, AnimatePresence } from 'framer-motion';
 import dayjs from 'dayjs';
 import { clearPendingUploads, deletePendingUpload, getPendingUploads, savePendingUpload, updatePendingUpload, PendingUpload } from '../utils/uploadQueue';
+import { MediaItem } from '../types';
 
 const Upload: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
+  const editItem = (location.state as { item?: MediaItem } | null)?.item;
   const editId = searchParams.get('edit');
   const isEditMode = Boolean(editId);
   const [files, setFiles] = useState<File[]>([]);
@@ -21,16 +24,13 @@ const Upload: React.FC = () => {
   const [date, setDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [warning, setWarning] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loadingItem, setLoadingItem] = useState(false);
-  const [backgroundUploadActive, setBackgroundUploadActive] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [uploadMessageTone, setUploadMessageTone] = useState<'success' | 'error'>('success');
   const [queuedUploads, setQueuedUploads] = useState<PendingUpload[]>([]);
   const abortControllersRef = React.useRef<Record<string, AbortController>>({});
   const queueProcessingRef = React.useRef(false);
-  const uploadChunkProgressRef = React.useRef<Record<string, number>>({});
 
   const UPLOAD_PROGRESS_METADATA_KEY = 'album_bd_upload_progress';
 
@@ -39,6 +39,35 @@ const Upload: React.FC = () => {
     currentChunkIndex?: number;
     currentChunkBytes?: number;
   };
+
+  const normalizeUploadStatus = (status: unknown): PendingUpload['status'] => {
+    if (status === 'pending' || status === 'running' || status === 'failed' || status === 'done') {
+      return status;
+    }
+    return 'failed';
+  };
+
+  const normalizePendingUpload = (
+    upload: Partial<Omit<PendingUpload, 'status'>> & { status?: string | PendingUpload['status'] }
+  ): PendingUpload => ({
+    id: upload.id ?? '',
+    fileName: upload.fileName ?? '',
+    fileSize: upload.fileSize ?? 0,
+    mimeType: upload.mimeType ?? 'application/octet-stream',
+    tag: upload.tag ?? 'B',
+    takenAt: upload.takenAt ?? dayjs().format('YYYY-MM-DD'),
+    description: upload.description ?? '',
+    totalChunks: upload.totalChunks ?? 1,
+    completedChunks: upload.completedChunks ?? [],
+    uploadedBytes: upload.uploadedBytes ?? 0,
+    status: normalizeUploadStatus(upload.status),
+    createdAt: upload.createdAt ?? Date.now(),
+    chunks: upload.chunks ?? [],
+    uploadUrl: upload.uploadUrl ?? '',
+    authToken: upload.authToken,
+    uuid: upload.uuid,
+    lastError: upload.lastError,
+  });
 
   const loadStoredUploadProgress = (uploadId: string): StoredUploadProgress | undefined => {
     try {
@@ -83,13 +112,18 @@ const Upload: React.FC = () => {
   };
 
   const hydrateStoredProgress = (upload: PendingUpload) => {
-    const stored = loadStoredUploadProgress(upload.id);
-    const hydrated = stored && stored.uploadedBytes > upload.uploadedBytes
+    const normalizedUpload = {
+      ...upload,
+      status: normalizeUploadStatus(upload.status),
+    };
+
+    const stored = loadStoredUploadProgress(normalizedUpload.id);
+    const hydrated = stored && stored.uploadedBytes > normalizedUpload.uploadedBytes
       ? {
-          ...upload,
-          uploadedBytes: Math.min(upload.fileSize, stored.uploadedBytes),
+          ...normalizedUpload,
+          uploadedBytes: Math.min(normalizedUpload.fileSize, stored.uploadedBytes),
         }
-      : upload;
+      : normalizedUpload;
 
     if (hydrated.status === 'pending' && hydrated.uploadedBytes > 0) {
       return { ...hydrated, status: 'running' };
@@ -146,7 +180,7 @@ const Upload: React.FC = () => {
     setLoadingItem(true);
     setError(null);
 
-    apiService.fetchMediaById(Number(editId))
+    (editItem ? Promise.resolve(editItem) : apiService.fetchMediaById(Number(editId)))
       .then((item) => {
         if (!active) return;
         setDescription(item.description || '');
@@ -158,7 +192,8 @@ const Upload: React.FC = () => {
 
         const previewUrl = apiService.buildFileUrl(
           item.thumbnail_url ?? item.thumbnail_path ?? item.file_url,
-          item.type === 'video' ? 'video' : 'image'
+          item.type === 'video' ? 'video' : 'image',
+          item.private_access_token
         );
 
         if (previewUrl) {
@@ -180,13 +215,15 @@ const Upload: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [editId, isEditMode]);
+  }, [editId, isEditMode, editItem]);
 
   useEffect(() => {
     const restorePendingUploads = async () => {
       try {
         const pendingUploads = await getPendingUploads();
-        const hydratedUploads = pendingUploads.map(hydrateStoredProgress);
+        const hydratedUploads: PendingUpload[] = pendingUploads
+          .map((upload) => normalizePendingUpload(upload))
+          .map((upload) => hydrateStoredProgress(upload));
         setQueuedUploads(hydratedUploads);
         if (hydratedUploads.length) {
           await processPendingUploads();
@@ -199,9 +236,10 @@ const Upload: React.FC = () => {
     void restorePendingUploads();
     const interval = window.setInterval(() => {
       void getPendingUploads().then((pendingUploads) => {
+        const normalizedPending = pendingUploads.map((upload) => normalizePendingUpload(upload));
         setQueuedUploads((currentQueued) => {
           const completedOrFailed = currentQueued.filter((item) => item.status === 'done' || item.status === 'failed');
-          const pendingOrRunning = pendingUploads.filter((item) => !completedOrFailed.some((completed) => completed.id === item.id));
+          const pendingOrRunning = normalizedPending.filter((item) => !completedOrFailed.some((completed) => completed.id === item.id));
           return [...completedOrFailed, ...pendingOrRunning];
         });
       });
@@ -267,23 +305,18 @@ const Upload: React.FC = () => {
   const scheduleBackgroundSync = async () => {
     if ('serviceWorker' in navigator && 'SyncManager' in window) {
       try {
-        const registration = await navigator.serviceWorker.ready;
-        await registration.sync.register('upload-sync');
+        const registration = (await navigator.serviceWorker.ready) as ServiceWorkerRegistration & {
+          sync?: { register: (tag: string) => Promise<void> };
+        };
+        const syncManager = registration.sync;
+        if (syncManager) {
+          await syncManager.register('upload-sync');
+        }
       } catch (error) {
         console.warn('No se pudo registrar background sync:', error);
       }
     }
   };
-
-  useEffect(() => {
-    const totalBytes = queuedUploads.reduce((sum, upload) => sum + upload.fileSize, 0);
-    const uploadedBytes = queuedUploads.reduce((sum, upload) => sum + upload.uploadedBytes, 0);
-    if (totalBytes > 0) {
-      setUploadProgress(Math.min(100, Math.round((uploadedBytes / totalBytes) * 100)));
-    } else if (!backgroundUploadActive) {
-      setUploadProgress(0);
-    }
-  }, [queuedUploads, backgroundUploadActive]);
 
   const enqueueUploadForBackground = async (file: File) => {
     const { chunkSize } = getUploadStrategy(file.size);
@@ -330,16 +363,14 @@ const Upload: React.FC = () => {
     try {
       const pendingUploads = await getPendingUploads();
       if (!pendingUploads.length) {
-        setBackgroundUploadActive(false);
         return;
       }
 
-      setBackgroundUploadActive(true);
       setUploadMessage('Procesando la cola de subidas...');
       setUploadMessageTone('success');
 
       await Promise.all(
-        pendingUploads.map((upload) => resumeBackgroundUpload(upload))
+        pendingUploads.map((upload) => resumeBackgroundUpload(normalizePendingUpload(upload)))
       );
     } finally {
       queueProcessingRef.current = false;
@@ -353,14 +384,8 @@ const Upload: React.FC = () => {
     clearAllStoredUploadProgress();
     setQueuedUploads([]);
     setUploading(false);
-    setBackgroundUploadActive(false);
-    setUploadProgress(0);
     setUploadMessage('Subida cancelada. Todo ha sido limpiado.');
     setUploadMessageTone('error');
-  };
-
-  const cancelQueuedUpload = async (uploadId: string) => {
-    await cancelAllUploads();
   };
 
   const resumeBackgroundUpload = async (upload: PendingUpload, onProgress?: (uploadedBytesForUpload: number) => void) => {
@@ -374,7 +399,6 @@ const Upload: React.FC = () => {
     const completed = new Set(upload.completedChunks);
     const uuid = upload.uuid || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     let uploadedBytes = upload.uploadedBytes;
-    let currentChunkBytes = 0;
 
     const controller = new AbortController();
     abortControllersRef.current[upload.id] = controller;
@@ -383,19 +407,21 @@ const Upload: React.FC = () => {
     let lastPersistedBytes = uploadedBytes;
     let lastDisplayedBytes = uploadedBytes;
 
-    const updateProgress = (bytes: number, persist = false) => {
-      const currentBytes = Math.min(upload.fileSize, uploadedBytes + bytes);
-      const displayedBytes = Math.max(lastDisplayedBytes, currentBytes);
+    const updateProgress = (nextTotalBytes: number, persist = false) => {
+      const clampedTotal = Math.min(upload.fileSize, Math.max(uploadedBytes, nextTotalBytes));
+      const displayedBytes = Math.max(lastDisplayedBytes, clampedTotal);
+
       if (displayedBytes > lastDisplayedBytes) {
         lastDisplayedBytes = displayedBytes;
       }
+
       if (persist || displayedBytes - lastPersistedBytes >= progressSaveThreshold || displayedBytes === upload.fileSize) {
         lastPersistedBytes = displayedBytes;
         saveStoredUploadProgress(upload.id, { uploadedBytes: displayedBytes });
       }
-      if (persist) {
-        uploadedBytes = displayedBytes;
-      }
+
+      uploadedBytes = displayedBytes;
+
       const updatedUpload: PendingUpload = {
         ...upload,
         completedChunks: Array.from(completed),
@@ -426,21 +452,21 @@ const Upload: React.FC = () => {
         formData.append('taken_at', upload.takenAt);
         if (upload.description) formData.append('description', upload.description);
 
-        currentChunkBytes = 0;
         const onChunkProgress = (event: any) => {
           if (!event?.loaded) return;
+
           const chunkProgress = Math.min(next.size, event.loaded);
-          currentChunkBytes = Math.max(currentChunkBytes, chunkProgress);
-          updateProgress(currentChunkBytes, false);
+          const projectedBytes = Math.max(uploadedBytes, uploadedBytes) + chunkProgress;
+          updateProgress(projectedBytes, false);
         };
 
-    try {
+        try {
           await apiService.uploadChunk(formData, onChunkProgress, controller.signal);
           completed.add(next.index);
-          uploadedBytes += next.size;
-          currentChunkBytes = 0;
-          updateProgress(0, true);
-          const persistedUpload = {
+          const completedChunkBytes = next.size;
+          uploadedBytes = Math.min(upload.fileSize, uploadedBytes + completedChunkBytes);
+          updateProgress(uploadedBytes, true);
+          const persistedUpload: PendingUpload = {
             ...upload,
             completedChunks: Array.from(completed),
             uploadedBytes,
@@ -484,8 +510,6 @@ const Upload: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['media'], refetchType: 'all' });
       setUploadMessage('Carga completada correctamente.');
       setUploadMessageTone('success');
-      setUploadProgress(100);
-      setBackgroundUploadActive(false);
     }
   };
 
@@ -500,7 +524,7 @@ const Upload: React.FC = () => {
           tag,
           description,
           taken_at: dayjs(date).format('YYYY-MM-DD'),
-        });
+        }, editItem?.private_access_token);
         await queryClient.invalidateQueries({ queryKey: ['media'], refetchType: 'all' });
         navigate('/');
       } catch (err: any) {
@@ -536,7 +560,6 @@ const Upload: React.FC = () => {
       setTag('B');
       setDate(dayjs().format('YYYY-MM-DD'));
       setWarning(null);
-        setBackgroundUploadActive(true);
 
       void processPendingUploads();
       void scheduleBackgroundSync();
@@ -552,11 +575,11 @@ const Upload: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#050712] text-white flex flex-col relative overflow-hidden font-sans">
-      <div className="absolute top-[-10%] right-[-10%] w-[400px] h-[400px] bg-[#7C1039]/20 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] left-[-10%] w-[300px] h-[300px] bg-[#7C1039]/10 rounded-full blur-[100px] pointer-events-none" />
+    <div className="min-h-screen bg-dark text-white flex flex-col relative overflow-hidden font-sans">
+      <div className="absolute top-[-10%] right-[-10%] w-100 h-100 bg-primary/20 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-[-10%] left-[-10%] w-75 h-75 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
 
-      <header className="sticky top-0 z-40 bg-[#050712]/80 backdrop-blur-xl px-6 py-4 flex items-center justify-between border-b border-white/10">
+      <header className="sticky top-0 z-40 bg-dark/80 backdrop-blur-xl px-6 py-4 flex items-center justify-between border-b border-white/10">
         <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-white/70 hover:text-white transition-all active:scale-90">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
@@ -574,7 +597,7 @@ const Upload: React.FC = () => {
           className="space-y-8"
         >
           <div 
-            className={`aspect-[4/5] bg-[#0B1120] rounded-2xl border-2 border-dashed transition-all duration-500 flex flex-col items-center justify-center overflow-hidden relative group ${isEditMode ? 'border-white/10 cursor-default' : 'cursor-pointer'} ${previews.length ? 'border-transparent ring-1 ring-white/10 shadow-2xl shadow-black/50' : 'border-white/20 hover:border-white/30 hover:bg-white/5'}`}
+            className={`aspect-4/5 bg-card rounded-2xl border-2 border-dashed transition-all duration-500 flex flex-col items-center justify-center overflow-hidden relative group ${isEditMode ? 'border-white/10 cursor-default' : 'cursor-pointer'} ${previews.length ? 'border-transparent ring-1 ring-white/10 shadow-2xl shadow-black/50' : 'border-white/20 hover:border-white/30 hover:bg-white/5'}`}
             onClick={() => {
               if (!isEditMode) {
                 document.getElementById('fileInput')?.click();
@@ -618,7 +641,7 @@ const Upload: React.FC = () => {
               )
             ) : (
               <div className="text-center p-8">
-                <div className="w-20 h-20 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-white/10 group-hover:bg-[#7C1039]/20 transition-all duration-500">
+                <div className="w-20 h-20 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-white/10 group-hover:bg-primary/20 transition-all duration-500">
                   <svg className="w-8 h-8 text-white/40 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 4v16m8-8H4" />
                   </svg>
@@ -660,14 +683,14 @@ const Upload: React.FC = () => {
             )}
           </AnimatePresence>
 
-          <div className="space-y-6 bg-white/5 p-8 rounded-[32px] border border-white/10 shadow-xl backdrop-blur-md">
+          <div className="space-y-6 bg-white/5 p-8 rounded-4xl border border-white/10 shadow-xl backdrop-blur-md">
             <div>
               <label className="text-[10px] text-white font-bold mb-4 block uppercase tracking-[0.2em]">Descripción del momento</label>
               <textarea 
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
-                className="w-full bg-white/5 text-white border border-white/10 rounded-2xl p-4 focus:border-[#7C1039]/50 focus:bg-white/10 transition-all outline-none resize-none placeholder:text-white/20"
+                className="w-full bg-white/5 text-white border border-white/10 rounded-2xl p-4 focus:border-primary/50 focus:bg-white/10 transition-all outline-none resize-none placeholder:text-white/20"
                 placeholder="Escribe algo sobre este día..."
               />
             </div>
@@ -679,11 +702,12 @@ const Upload: React.FC = () => {
                   <select 
                     value={tag}
                     onChange={(e) => setTag(e.target.value)}
-                    className="w-full bg-white/5 text-white border border-white/10 rounded-2xl p-4 appearance-none focus:border-[#7C1039]/50 focus:bg-white/10 outline-none transition-all cursor-pointer"
+                    className="w-full bg-white/5 text-white border border-white/10 rounded-2xl p-4 appearance-none focus:border-primary/50 focus:bg-white/10 outline-none transition-all cursor-pointer"
                   >
-                    <option value="B" className="bg-[#050712]">B - Breese</option>
-                    <option value="D" className="bg-[#050712]">D - Diego</option>
-                    <option value="BD" className="bg-[#050712]">BD - Ambos</option>
+                    <option value="B" className="bg-dark">B - Breese</option>
+                    <option value="D" className="bg-dark">D - Diego</option>
+                    <option value="BD" className="bg-dark">BD - Ambos</option>
+                    <option value="Privado" className="bg-dark">Privado</option>
                   </select>
                   <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/30">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -697,7 +721,7 @@ const Upload: React.FC = () => {
                   type="date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
-                  className="w-full bg-white/5 text-white border border-white/10 rounded-2xl p-4 focus:border-[#7C1039]/50 focus:bg-white/10 outline-none transition-all [color-scheme:dark]"
+                  className="w-full bg-white/5 text-white border border-white/10 rounded-2xl p-4 focus:border-primary/50 focus:bg-white/10 outline-none transition-all scheme-dark"
                 />
               </div>
             </div>
@@ -712,7 +736,7 @@ const Upload: React.FC = () => {
                 <button
               type="submit"
               disabled={uploading || (loadingItem && isEditMode) || (!isEditMode && !files.length)}
-              className="w-full bg-[#7C1039] text-white font-bold py-4 rounded-2xl shadow-lg shadow-[#7C1039]/20 hover:bg-[#9a1447] active:scale-95 disabled:opacity-30 disabled:grayscale transition-all uppercase tracking-widest text-sm"
+              className="w-full bg-primary text-white font-bold py-4 rounded-2xl shadow-lg shadow-primary/20 hover:bg-[#9a1447] active:scale-95 disabled:opacity-30 disabled:grayscale transition-all uppercase tracking-widest text-sm"
             >
               {uploading ? (isEditMode ? 'Guardando...' : 'Agregando a la cola...') : (isEditMode ? 'Guardar cambios' : 'Agregar a la cola')}
             </button>
@@ -749,7 +773,7 @@ const Upload: React.FC = () => {
                       const badgeColor = upload.status === 'done'
                         ? 'bg-emerald-500/15 text-emerald-200'
                         : upload.status === 'running'
-                          ? 'bg-[#7C1039]/15 text-[#f6c3e2]'
+                          ? 'bg-primary/15 text-[#f6c3e2]'
                           : 'bg-white/10 text-white/60';
                       return (
                         <div key={upload.id} className="rounded-[28px] border border-white/10 bg-[#0b1423] p-4">
@@ -768,7 +792,7 @@ const Upload: React.FC = () => {
                             <motion.div
                               initial={false}
                               animate={{ width: `${percent}%` }}
-                              className="h-full rounded-full bg-gradient-to-r from-[#7C1039] via-[#9a1447] to-[#7C1039] shadow-[0_0_10px_rgba(124,16,57,0.35)]"
+                              className="h-full rounded-full bg-linear-to-r from-primary via-[#9a1447] to-primary shadow-[0_0_10px_rgba(124,16,57,0.35)]"
                             />
                           </div>
                         </div>

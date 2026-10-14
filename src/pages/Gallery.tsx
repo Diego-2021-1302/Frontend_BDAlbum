@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useLocation, useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '../api/api';
 import { useAuthStore } from '../store/authStore';
@@ -24,7 +24,7 @@ const GallerySkeleton = () => (
         <div className="h-12 w-40 bg-white/5 rounded-2xl" />
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
           {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
-            <div key={i} className="aspect-[3/4] bg-white/5 rounded-3xl" />
+            <div key={i} className="aspect-3/4 bg-white/5 rounded-3xl" />
           ))}
         </div>
       </div>
@@ -65,8 +65,9 @@ const MediaCard = React.memo(({ item, index, onAction, onClick }: {
     if (isVideo && !item.thumbnail_path) return null;
     const path = item.thumbnail_path ?? item.file_path;
     // Añadimos una marca de tiempo por intento para forzar la recarga si falló por 429
-    const cacheBuster = retryCount > 0 ? `?r=${retryCount}` : '';
-    return path ? apiService.buildFileUrl(path, isVideo ? 'video' : 'image') + cacheBuster : null;
+    const fileUrl = path ? apiService.buildFileUrl(path, isVideo ? 'video' : 'image', item.private_access_token) : '';
+    const cacheBuster = retryCount > 0 ? `${fileUrl.includes('?') ? '&' : '?'}r=${retryCount}` : '';
+    return fileUrl ? fileUrl + cacheBuster : null;
   }, [item, isVideo, isInView, retryCount]);
 
   const handleError = () => {
@@ -83,9 +84,9 @@ const MediaCard = React.memo(({ item, index, onAction, onClick }: {
       onTouchStart={(e) => onAction(item, e)}
       onClick={() => onClick(item)}
       data-id={item.id}
-      className="group relative aspect-[3/4] overflow-hidden rounded-2xl sm:rounded-[2rem] bg-white/[0.03] border border-white/5 cursor-pointer transform-gpu transition-all duration-500 hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.7)] active:scale-[0.97]"
+      className="group relative aspect-3/4 overflow-hidden rounded-2xl sm:rounded-4xl bg-white/3 border border-white/5 cursor-pointer transform-gpu transition-all duration-500 hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.7)] active:scale-[0.97]"
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-white/[0.03] to-transparent animate-pulse" />
+      <div className="absolute inset-0 bg-linear-to-br from-white/3 to-transparent animate-pulse" />
 
       <div className="absolute inset-0 z-0">
         {displaySrc ? (
@@ -96,23 +97,24 @@ const MediaCard = React.memo(({ item, index, onAction, onClick }: {
             onError={handleError}
             className={`w-full h-full object-cover transition-all duration-700 ease-out group-hover:scale-110
               ${loaded ? 'opacity-100 scale-100' : 'opacity-0 scale-105'}`}
-            loading="lazy"
+            loading={index < 4 ? 'eager' : 'lazy'}
+            fetchPriority={index < 4 ? 'high' : 'low'}
             decoding="async"
           />
         ) : isVideo && !item.thumbnail_path ? (
-          <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-[#7C1039]/5">
-             <div className="w-6 h-6 border-2 border-[#7C1039]/30 border-t-[#7C1039] rounded-full animate-spin" />
-             <span className="text-[8px] font-black text-[#7C1039] uppercase tracking-widest opacity-40">Procesando</span>
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-primary/5">
+             <div className="w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+             <span className="text-[8px] font-black text-primary uppercase tracking-widest opacity-40">Procesando</span>
           </div>
         ) : null}
       </div>
 
       {/* Overlay Gradiente */}
-      <div className="absolute inset-0 z-10 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+      <div className="absolute inset-0 z-10 bg-linear-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 
       {/* Badge de Tag - Rediseñado */}
-      <div className="absolute top-3 left-3 z-20 px-2.5 py-1 bg-black/30 backdrop-blur-xl rounded-full border border-white/10 shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-[-10px] group-hover:translate-y-0">
-        <span className="text-[9px] font-black text-white/90 tracking-[0.1em] uppercase">{item.tag}</span>
+      <div className="absolute top-3 left-3 z-20 px-2.5 py-1 bg-black/30 backdrop-blur-xl rounded-full border border-white/10 shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-300 -translate-y-2.5 group-hover:translate-y-0">
+        <span className="text-[9px] font-black text-white/90 tracking-widest uppercase">{item.tag}</span>
       </div>
 
       {/* Indicador de Video Premium */}
@@ -151,11 +153,11 @@ const DaySection = React.memo(({ date, items, onAction, onClick }: {
       } as any}
     >
       <div className="flex items-center gap-4 px-2">
-        <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-white/5 to-transparent" />
-        <p className="text-[10px] font-black text-[#7C1039] uppercase tracking-[0.4em] whitespace-nowrap opacity-60">
+        <div className="h-px flex-1 bg-linear-to-r from-transparent via-white/5 to-transparent" />
+        <p className="text-[10px] font-black text-primary uppercase tracking-[0.4em] whitespace-nowrap opacity-60">
           {date}
         </p>
-        <div className="h-[1px] flex-1 bg-gradient-to-l from-transparent via-white/5 to-transparent" />
+        <div className="h-px flex-1 bg-linear-to-l from-transparent via-white/5 to-transparent" />
       </div>
 
       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 gap-3">
@@ -210,10 +212,10 @@ const LoveCounter = () => {
         className="max-w-2xl mx-auto relative group"
       >
         {/* Glow de Fondo Estético */}
-        <div className="absolute -inset-2 bg-gradient-to-r from-[#7C1039]/10 via-transparent to-[#7C1039]/10 rounded-[2.5rem] blur-3xl opacity-50 group-hover:opacity-80 transition duration-1000"></div>
+        <div className="absolute -inset-2 bg-linear-to-r from-primary/10 via-transparent to-primary/10 rounded-[2.5rem] blur-3xl opacity-50 group-hover:opacity-80 transition duration-1000"></div>
 
         {/* Contenedor Flotante Premium con Borde Animado Secuencial */}
-        <div className="relative bg-[#0a0b14]/70 backdrop-blur-3xl rounded-[2.2rem] p-6 sm:p-8 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.8)] overflow-hidden border border-white/[0.05]">
+        <div className="relative bg-[#0a0b14]/70 backdrop-blur-3xl rounded-[2.2rem] p-6 sm:p-8 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.8)] overflow-hidden border border-white/5">
 
           {/* Border Beam Effect (Luxury Shimmer) */}
           <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-[2.2rem]">
@@ -271,24 +273,24 @@ const LoveCounter = () => {
             {/* Header: Romanticismo & Contexto */}
             <div className="flex items-center justify-between border-b border-white/5 pb-5">
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1a1b26] to-[#050712] border border-white/10 flex items-center justify-center shadow-lg relative">
-                  <span className="text-[#7C1039] font-serif italic text-base tracking-tighter select-none">BD</span>
+                <div className="w-10 h-10 rounded-full bg-linear-to-br from-[#1a1b26] to-dark border border-white/10 flex items-center justify-center shadow-lg relative">
+                  <span className="text-primary font-serif italic text-base tracking-tighter select-none">BD</span>
                   {/* Glow interno del logo */}
-                  <div className="absolute inset-0 rounded-full bg-[#7C1039]/5 blur-sm"></div>
+                  <div className="absolute inset-0 rounded-full bg-primary/5 blur-sm"></div>
                 </div>
                 <div className="flex flex-col">
-                  <h3 className="text-[10px] font-black tracking-[0.4em] text-[#7C1039] uppercase select-none">Nuestro Eterno Comienzo</h3>
+                  <h3 className="text-[10px] font-black tracking-[0.4em] text-primary uppercase select-none">Nuestro Eterno Comienzo</h3>
                   <p className="text-[9px] text-white/40 font-medium tracking-tight">Domingo 16 agosto 2026 a la 10:05 p.m.</p>
                 </div>
               </div>
 
               {/* Status "Live" Premium */}
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#7C1039]/5 border border-[#7C1039]/20">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/5 border border-primary/20">
                 <div className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7C1039] opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#7C1039]"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
                 </div>
-                <span className="text-[8px] font-black text-[#7C1039] uppercase tracking-widest hidden xs:block">Latido a Latido</span>
+                <span className="text-[8px] font-black text-primary uppercase tracking-widest hidden xs:block">Latido a Latido</span>
               </div>
             </div>
 
@@ -308,7 +310,7 @@ const LoveCounter = () => {
                           stiffness: 450,
                           damping: 30
                         }}
-                        className={`text-2xl sm:text-4xl font-black tabular-nums tracking-tighter ${item.label === 'Seg' ? 'text-[#7C1039] drop-shadow-[0_0_15px_rgba(124,16,57,0.5)]' : 'text-white'}`}
+                        className={`text-2xl sm:text-4xl font-black tabular-nums tracking-tighter ${item.label === 'Seg' ? 'text-primary drop-shadow-[0_0_15px_rgba(124,16,57,0.5)]' : 'text-white'}`}
                       >
                         {item.val}
                       </motion.span>
@@ -321,7 +323,7 @@ const LoveCounter = () => {
 
                   {/* Separador vertical sutil */}
                   {index < stats.length - 1 && (
-                    <div className="hidden sm:block absolute -right-[1px] top-1/2 -translate-y-1/2 h-8 w-[1px] bg-gradient-to-b from-transparent via-white/10 to-transparent" />
+                    <div className="hidden sm:block absolute -right-px top-1/2 -translate-y-1/2 h-8 w-px bg-linear-to-b from-transparent via-white/10 to-transparent" />
                   )}
                 </div>
               ))}
@@ -331,17 +333,17 @@ const LoveCounter = () => {
           {/* Resultados Totales debajo del Grid */}
           <div className="mt-6 pt-4 border-t border-white/5 flex justify-center items-center gap-4 relative z-10">
             <div className="flex items-center gap-2">
-              <div className="h-1 w-1 rounded-full bg-[#7C1039] animate-pulse"></div>
+              <div className="h-1 w-1 rounded-full bg-primary animate-pulse"></div>
               <span className="text-[8px] sm:text-[10px] font-black text-white/30 uppercase tracking-[0.4em]">Total de Días</span>
             </div>
-            <div className="text-sm sm:text-xl font-black text-[#7C1039] drop-shadow-[0_0_10px_rgba(124,16,57,0.3)] tabular-nums">
+            <div className="text-sm sm:text-xl font-black text-primary drop-shadow-[0_0_10px_rgba(124,16,57,0.3)] tabular-nums">
               {totalDays}
             </div>
           </div>
 
           {/* Efecto de Luces Perimetrales Secuenciales (Esquinas) */}
-          <div className="absolute top-0 left-0 w-20 h-[1px] bg-gradient-to-r from-transparent to-[#7C1039]/40"></div>
-          <div className="absolute bottom-0 right-0 w-20 h-[1px] bg-gradient-to-l from-transparent to-[#7C1039]/40"></div>
+          <div className="absolute top-0 left-0 w-20 h-px bg-linear-to-r from-transparent to-primary/40"></div>
+          <div className="absolute bottom-0 right-0 w-20 h-px bg-linear-to-l from-transparent to-primary/40"></div>
         </div>
       </motion.div>
     </div>
@@ -350,13 +352,18 @@ const LoveCounter = () => {
 
 const Gallery: React.FC = () => {
   const navigate = useNavigate();
-  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { user, logout } = useAuthStore();
 
   const [selectedYear, setSelectedYear] = useState(Number(searchParams.get('year')) || new Date().getFullYear());
   const [selectedTag, setSelectedTag] = useState('');
+  const [privateItems, setPrivateItems] = useState<MediaItem[]>([]);
+  const [hasPrivateAccess, setHasPrivateAccess] = useState(false);
+  const [isPrivatePinDialogOpen, setIsPrivatePinDialogOpen] = useState(false);
+  const [privatePin, setPrivatePin] = useState('');
+  const [privatePinError, setPrivatePinError] = useState('');
+  const [isUnlockingPrivate, setIsUnlockingPrivate] = useState(false);
   const [search, setSearch] = useState('');
   const [actionItem, setActionItem] = useState<MediaItem | null>(null);
   const [pendingDeleteItem, setPendingDeleteItem] = useState<MediaItem | null>(null);
@@ -372,6 +379,45 @@ const Gallery: React.FC = () => {
     refetchOnReconnect: true,
   });
 
+  const handleTagChange = (tag: string) => {
+    if (tag === 'Privado') {
+      setSelectedTag(tag);
+      setPrivateItems([]);
+      setHasPrivateAccess(false);
+      setPrivatePin('');
+      setPrivatePinError('');
+      setIsPrivatePinDialogOpen(true);
+      return;
+    }
+
+    setSelectedTag(tag);
+    setPrivateItems([]);
+    setHasPrivateAccess(false);
+    setIsPrivatePinDialogOpen(false);
+  };
+
+  const handlePrivateUnlock = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!/^\d{4}$/.test(privatePin)) {
+      setPrivatePinError('El PIN debe tener cuatro dígitos.');
+      return;
+    }
+
+    setIsUnlockingPrivate(true);
+    setPrivatePinError('');
+    try {
+      const response = await apiService.unlockPrivateMedia(privatePin);
+      setPrivateItems(response.items.filter((item) => item.tag === 'Privado'));
+      setHasPrivateAccess(true);
+      setPrivatePin('');
+      setIsPrivatePinDialogOpen(false);
+    } catch {
+      setPrivatePinError('PIN incorrecto.');
+    } finally {
+      setIsUnlockingPrivate(false);
+    }
+  };
+
   useEffect(() => {
     const hasPendingVideoThumbs = items.some((item) => item.type === 'video' && !item.thumbnail_path);
     if (!hasPendingVideoThumbs) return;
@@ -383,9 +429,12 @@ const Gallery: React.FC = () => {
     return () => window.clearInterval(interval);
   }, [items, refetch]);
 
+  const galleryItems = selectedTag === 'Privado'
+    ? (hasPrivateAccess ? privateItems : [])
+    : items.filter((item) => item.tag !== 'Privado');
   const availableYears = useMemo(() => 
-    Array.from(new Set(items.map(item => dayjs(item.taken_at).year()))).sort((a, b) => b - a),
-  [items]);
+    Array.from(new Set(galleryItems.map(item => dayjs(item.taken_at).year()))).sort((a, b) => b - a),
+  [galleryItems]);
 
   useEffect(() => {
     if (availableYears.length > 0 && !availableYears.includes(selectedYear)) {
@@ -399,15 +448,16 @@ const Gallery: React.FC = () => {
 
   const filteredItems = useMemo(() => {
     const s = search.toLowerCase();
-    return items.filter(item => {
+    return galleryItems.filter(item => {
       // Usar solo la parte de la fecha para evitar desfases de zona horaria
       const dateStr = item.taken_at.split('T')[0];
       const date = dayjs(dateStr);
       return date.year() === selectedYear &&
+             (selectedTag === 'Privado' ? item.tag === 'Privado' : item.tag !== 'Privado') &&
              (!selectedTag || item.tag === selectedTag) &&
              (!search || (item.description?.toLowerCase().includes(s) || item.tag.toLowerCase().includes(s)));
     }).sort((a, b) => dayjs(b.taken_at).diff(dayjs(a.taken_at)));
-  }, [items, selectedYear, selectedTag, search]);
+  }, [galleryItems, selectedYear, selectedTag, search]);
 
   const groupedItems = useMemo(() => {
     const months: Record<string, GroupedMonth> = {};
@@ -463,7 +513,7 @@ const Gallery: React.FC = () => {
 
     setLoadingAction(true);
     try {
-      await apiService.deleteMedia(itemToDelete.id);
+      await apiService.deleteMedia(itemToDelete.id, itemToDelete.private_access_token);
       queryClient.invalidateQueries({ queryKey: ['media'] });
       setActionItem(null);
       setPendingDeleteItem(null);
@@ -476,8 +526,8 @@ const Gallery: React.FC = () => {
   };
 
   return (
-    <div className="min-h-[100dvh] w-full overflow-visible relative text-white selection:bg-[#7C1039]/50" onMouseUp={handleActionEnd} onTouchEnd={handleActionEnd}>
-      <div className="fixed inset-0 bg-[#050712] z-0" />
+    <div className="min-h-dvh w-full overflow-visible relative text-white selection:bg-primary/50" onMouseUp={handleActionEnd} onTouchEnd={handleActionEnd}>
+      <div className="fixed inset-0 bg-dark z-0" />
       <motion.img
         initial={{ opacity: 0, x: -100, rotate: -20 }}
         animate={{ opacity: 0.08, x: 0, rotate: 0 }}
@@ -492,15 +542,15 @@ const Gallery: React.FC = () => {
         src="/assets/images/ghost.png"
         className="fixed bottom-20 -right-10 h-48 pointer-events-none blur-none z-0"
       />
-      <div className="relative z-10 flex min-h-[100dvh] flex-col">
-      <header className="sticky top-0 z-50 bg-[#050712]/80 backdrop-blur-2xl px-4 py-4 sm:px-6 sm:py-5 min-h-[64px] sm:min-h-[72px] flex items-center justify-between gap-3 border-b border-white/[0.03]">
+      <div className="relative z-10 flex min-h-dvh flex-col">
+      <header className="sticky top-0 z-50 bg-dark/80 backdrop-blur-2xl px-4 py-4 sm:px-6 sm:py-5 min-h-16 sm:min-h-18 flex items-center justify-between gap-3 border-b border-white/3">
         <div className="w-10 flex justify-start">
            {user?.username?.trim().toUpperCase() === 'UNICOMICOPTERO' && (
-             <Link to="/admin" className="p-2 text-white/20 hover:text-[#7C1039] transition-all"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></Link>
+             <Link to="/admin" className="p-2 text-white/20 hover:text-primary transition-all"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></Link>
            )}
         </div>
-        <h1 className="font-title text-2xl tracking-tight bg-gradient-to-b from-white to-white/60 bg-clip-text text-transparent">
-            Breese <span className="text-[#7C1039]">y</span> Diego
+        <h1 className="font-title text-2xl tracking-tight bg-linear-to-b from-white to-white/60 bg-clip-text text-transparent">
+            Breese <span className="text-primary">y</span> Diego
         </h1>
         <button onClick={() => logout()} className="w-10 flex justify-end text-white/20 hover:text-white transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
@@ -511,43 +561,44 @@ const Gallery: React.FC = () => {
 
       <main className="relative max-w-5xl mx-auto px-4 sm:px-6 mt-4 sm:mt-8 w-full">
         {/* HERO SECTION - REDISEÑO TOTAL */}
-        <section className="relative overflow-hidden bg-[#0a0b14] p-5 sm:p-10 rounded-[2rem] sm:rounded-[2.5rem] border border-white/[0.03] mb-8 sm:mb-12 shadow-[0_40px_90px_-20px_rgba(0,0,0,0.5)]">
-          <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-52 sm:w-72 h-52 sm:h-72 bg-[#7C1039]/10 rounded-full blur-[40px] sm:blur-[56px]" />
+        <section className="relative overflow-hidden bg-[#0a0b14] p-5 sm:p-10 rounded-4xl sm:rounded-[2.5rem] border border-white/3 mb-8 sm:mb-12 shadow-[0_40px_90px_-20px_rgba(0,0,0,0.5)]">
+          <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-52 sm:w-72 h-52 sm:h-72 bg-primary/10 rounded-full blur-2xl sm:blur-[56px]" />
 
           <div className="relative z-10 text-center space-y-6 sm:space-y-8">
             <div className="space-y-2">
-                <motion.h2 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="font-title text-3xl sm:text-7xl bg-gradient-to-b from-white to-white/40 bg-clip-text text-transparent tracking-tighter">Nuestros Momentos</motion.h2>
-                <p className="text-[#7C1039] text-[9px] sm:text-[10px] font-black uppercase tracking-[0.4em] sm:tracking-[0.5em] opacity-80">CHERRY - GHOST</p>
+                <motion.h2 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="font-title text-3xl sm:text-7xl bg-linear-to-b from-white to-white/40 bg-clip-text text-transparent tracking-tighter">Nuestros Momentos</motion.h2>
+                <p className="text-primary text-[9px] sm:text-[10px] font-black uppercase tracking-[0.4em] sm:tracking-[0.5em] opacity-80">CHERRY - GHOST</p>
             </div>
 
             <div className="flex justify-center items-center gap-6 sm:gap-12 py-2">
               <motion.img whileHover={{ scale: 1.15, rotate: 12 }} src="/assets/images/cereza.png" className="h-10 sm:h-16 drop-shadow-[0_10px_30px_rgba(124,16,57,0.5)]" alt="Cherry" />
-              <div className="h-10 sm:h-16 w-[1px] bg-gradient-to-b from-transparent via-white/10 to-transparent" />
+              <div className="h-10 sm:h-16 w-px bg-linear-to-b from-transparent via-white/10 to-transparent" />
               <motion.img whileHover={{ scale: 1.15, rotate: -12 }} src="/assets/images/ghost.png" className="h-10 sm:h-16 drop-shadow-[0_10px_30px_rgba(255,255,255,0.2)]" alt="Ghost" />
             </div>
 
             <div className="max-w-md mx-auto space-y-4 sm:space-y-6 pt-2">
               <div className="relative group">
-                <div className="absolute inset-y-0 left-4 sm:left-5 flex items-center pointer-events-none text-white/20 group-focus-within:text-[#7C1039] transition-colors">
-                    <svg className="w-3.5 h-3.5 sm:w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <div className="absolute inset-y-0 left-4 sm:left-5 flex items-center pointer-events-none text-white/20 group-focus-within:text-primary transition-colors">
+                    <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </div>
                 <input
                   type="text" placeholder="Buscar un recuerdo..." value={search} onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-white/[0.03] border border-white/10 rounded-2xl sm:rounded-3xl py-3 sm:py-4 pl-10 sm:pl-12 pr-4 sm:pr-6 text-xs sm:text-sm text-white placeholder:text-white/20 outline-none focus:bg-white/[0.06] focus:border-[#7C1039]/40 transition-all shadow-inner"
+                  className="w-full bg-white/3 border border-white/10 rounded-2xl sm:rounded-3xl py-3 sm:py-4 pl-10 sm:pl-12 pr-4 sm:pr-6 text-xs sm:text-sm text-white placeholder:text-white/20 outline-none focus:bg-white/6 focus:border-primary/40 transition-all shadow-inner"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2 sm:gap-3">
                 <div className="relative">
-                    <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="w-full bg-white/[0.03] border border-white/10 rounded-xl sm:rounded-2xl py-2.5 sm:py-3.5 px-4 sm:px-5 text-[10px] sm:text-xs text-white/80 outline-none appearance-none cursor-pointer focus:border-[#7C1039]/40">
+                    <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="w-full bg-white/3 border border-white/10 rounded-xl sm:rounded-2xl py-2.5 sm:py-3.5 px-4 sm:px-5 text-[10px] sm:text-xs text-white/80 outline-none appearance-none cursor-pointer focus:border-primary/40">
                         {availableYears.map(y => <option key={y} value={y} className="bg-[#0a0b14]">{y}</option>)}
                     </select>
                     <div className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/20"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
                 </div>
                 <div className="relative">
-                    <select value={selectedTag} onChange={(e) => setSelectedTag(e.target.value)} className="w-full bg-white/[0.03] border border-white/10 rounded-xl sm:rounded-2xl py-2.5 sm:py-3.5 px-4 sm:px-5 text-[10px] sm:text-xs text-white/80 outline-none appearance-none cursor-pointer focus:border-[#7C1039]/40">
+                    <select value={selectedTag} onChange={(e) => handleTagChange(e.target.value)} className="w-full bg-white/3 border border-white/10 rounded-xl sm:rounded-2xl py-2.5 sm:py-3.5 px-4 sm:px-5 text-[10px] sm:text-xs text-white/80 outline-none appearance-none cursor-pointer focus:border-primary/40">
                         <option value="" className="bg-[#0a0b14]">Todos</option>
                         <option value="B" className="bg-[#0a0b14]">B</option><option value="D" className="bg-[#0a0b14]">D</option><option value="BD" className="bg-[#0a0b14]">BD</option>
+                      <option value="Privado" className="bg-[#0a0b14]">Privado</option>
                     </select>
                     <div className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 pointer-events-none text-white/20"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
                 </div>
@@ -560,11 +611,11 @@ const Gallery: React.FC = () => {
         <section className="space-y-12 sm:space-y-20 px-1 sm:px-0">
           {isLoading ? <GallerySkeleton /> : groupedItems.map(month => (
             <div key={month.name} className="relative">
-              <div className="sticky top-[64px] sm:top-[72px] z-30 mb-6 sm:mb-8 flex items-center gap-3 sm:gap-4 rounded-full border border-white/10 bg-white/[0.03] px-4 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.25)] backdrop-blur-xl">
-                  <div className="h-2.5 w-2.5 rounded-full bg-[#7C1039] shadow-[0_0_12px_rgba(124,16,57,0.55)]" />
+              <div className="sticky top-16 sm:top-18 z-30 mb-6 sm:mb-8 flex items-center gap-3 sm:gap-4 rounded-full border border-white/10 bg-white/3 px-4 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.25)] backdrop-blur-xl">
+                  <div className="h-2.5 w-2.5 rounded-full bg-primary shadow-[0_0_12px_rgba(124,16,57,0.55)]" />
                   <h3 className="text-[13px] sm:text-[16px] font-semibold uppercase tracking-[0.35em] text-white/90">{month.name}</h3>
-                  <span className="text-[10px] sm:text-[11px] font-medium uppercase tracking-[0.25em] text-[#7C1039]">{selectedYear}</span>
-                  <div className="ml-auto h-[1px] flex-1 bg-gradient-to-r from-white/10 via-white/20 to-transparent" />
+                  <span className="text-[10px] sm:text-[11px] font-medium uppercase tracking-[0.25em] text-primary">{selectedYear}</span>
+                  <div className="ml-auto h-px flex-1 bg-linear-to-r from-white/10 via-white/20 to-transparent" />
                   <span className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.3em] text-white/35">{month.total} items</span>
               </div>
               <div className="space-y-10 sm:space-y-16">
@@ -583,10 +634,60 @@ const Gallery: React.FC = () => {
         </section>
       </main>
 
+      <AnimatePresence>
+        {isPrivatePinDialogOpen && (
+          <div className="fixed inset-0 z-120 flex items-center justify-center p-5">
+            <motion.button
+              type="button"
+              aria-label="Cerrar acceso privado"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => handleTagChange('')}
+              className="absolute inset-0 bg-black/85 backdrop-blur-xl"
+            />
+            <motion.form
+              onSubmit={handlePrivateUnlock}
+              initial={{ opacity: 0, y: 18, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.98 }}
+              className="relative w-full max-w-sm space-y-6 rounded-3xl border border-white/10 bg-[#0d0e1a] p-7 shadow-2xl"
+            >
+              <div className="space-y-2 text-center">
+                <h2 className="text-lg font-black uppercase tracking-[0.18em] text-white">Acceso privado</h2>
+                <p className="text-xs leading-relaxed text-white/45">Ingresa el PIN de esta cuenta. En el primer acceso, el PIN que ingreses quedará registrado.</p>
+              </div>
+              <div>
+                <label htmlFor="private-pin" className="mb-2 block text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">PIN de 4 dígitos</label>
+                <input
+                  id="private-pin"
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{4}"
+                  maxLength={4}
+                  value={privatePin}
+                  onChange={(event) => setPrivatePin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-center text-xl tracking-[0.5em] text-white outline-none focus:border-primary/50"
+                  autoFocus
+                />
+                {privatePinError && <p role="alert" className="mt-2 text-center text-xs text-red-400">{privatePinError}</p>}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <button type="button" onClick={() => handleTagChange('')} className="rounded-xl border border-white/10 py-3 text-xs font-bold uppercase tracking-wider text-white/55 transition-colors hover:bg-white/5">Cancelar</button>
+                <button type="submit" disabled={isUnlockingPrivate || privatePin.length !== 4} className="rounded-xl bg-primary py-3 text-xs font-bold uppercase tracking-wider text-white transition-opacity disabled:opacity-40">
+                  {isUnlockingPrivate ? 'Verificando...' : 'Acceder'}
+                </button>
+              </div>
+            </motion.form>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* FAB - ACCIÓN PRINCIPAL (Botón de subida redimensionado) */}
       <Link
         to="/upload"
-        className="fixed bottom-6 right-6 sm:bottom-10 sm:right-10 z-50 w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-tr from-[#7C1039] to-[#9d1548] rounded-2xl sm:rounded-[2rem] flex items-center justify-center shadow-[0_15px_40px_rgba(124,16,57,0.5)] hover:scale-110 active:scale-90 transition-all border border-white/20 group overflow-hidden"
+        className="fixed bottom-6 right-6 sm:bottom-10 sm:right-10 z-50 w-14 h-14 sm:w-16 sm:h-16 bg-linear-to-tr from-primary to-[#9d1548] rounded-2xl sm:rounded-4xl flex items-center justify-center shadow-[0_15px_40px_rgba(124,16,57,0.5)] hover:scale-110 active:scale-90 transition-all border border-white/20 group overflow-hidden"
       >
         <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
         <img src="/assets/images/cereza.png" className="w-7 h-7 sm:w-8 sm:h-8 drop-shadow-2xl group-hover:rotate-12 transition-transform duration-300" alt="Upload" />
@@ -595,16 +696,16 @@ const Gallery: React.FC = () => {
       {/* MENÚ DE ACCIONES CONTEXTUALES */}
       <AnimatePresence>
         {actionItem && (
-          <div className="fixed inset-0 z-[100] flex items-end justify-center px-4 pb-12">
+          <div className="fixed inset-0 z-100 flex items-end justify-center px-4 pb-12">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setActionItem(null)} className="absolute inset-0 bg-black/90 backdrop-blur-sm" />
             <motion.div initial={{ y: 300, scale: 0.9 }} animate={{ y: 0, scale: 1 }} exit={{ y: 300, scale: 0.9 }} className="relative w-full max-w-sm bg-[#0d0e1a] border border-white/10 rounded-[3rem] p-8 shadow-[0_50px_100px_rgba(0,0,0,1)] text-center">
               <div className="w-24 h-32 mx-auto mb-6 rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
-                 <img src={apiService.buildFileUrl(actionItem.thumbnail_url ?? actionItem.thumbnail_path ?? actionItem.file_url)} className="w-full h-full object-cover" alt="Preview" />
+                 <img src={apiService.buildFileUrl(actionItem.thumbnail_url ?? actionItem.thumbnail_path ?? actionItem.file_url, undefined, actionItem.private_access_token)} className="w-full h-full object-cover" alt="Preview" />
               </div>
               <p className="text-white/90 font-black uppercase tracking-widest text-xs mb-8">{actionItem.description || 'Recuerdo guardado'}</p>
 
               <div className="grid grid-cols-1 gap-3">
-                <button onClick={() => { setActionItem(null); navigate(`/upload?edit=${actionItem.id}`); }} className="w-full py-5 bg-white/5 hover:bg-white/10 rounded-3xl text-white font-bold transition-all border border-white/5 uppercase tracking-widest text-[10px]">Editar</button>
+                <button onClick={() => { setActionItem(null); navigate(`/upload?edit=${actionItem.id}`, { state: { item: actionItem } }); }} className="w-full py-5 bg-white/5 hover:bg-white/10 rounded-3xl text-white font-bold transition-all border border-white/5 uppercase tracking-widest text-[10px]">Editar</button>
                 <button onClick={() => { setPendingDeleteItem(actionItem); setIsConfirmingDelete(true); setActionItem(null); }} className="w-full py-5 bg-red-950/30 hover:bg-red-950/50 rounded-3xl text-red-500 font-bold transition-all border border-red-900/20 uppercase tracking-widest text-[10px]">Eliminar</button>
                 <button onClick={() => setActionItem(null)} className="w-full py-5 text-white/20 text-[10px] uppercase tracking-[0.3em] font-black">Cerrar</button>
               </div>
@@ -613,7 +714,7 @@ const Gallery: React.FC = () => {
         )}
 
         {isConfirmingDelete && (
-           <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+           <div className="fixed inset-0 z-110 flex items-center justify-center p-6">
              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setIsConfirmingDelete(false); setPendingDeleteItem(null); }} className="absolute inset-0 bg-black/95 backdrop-blur-2xl" />
              <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="relative w-full max-w-sm bg-[#1a050d] border border-red-900/30 rounded-[4rem] p-12 text-center shadow-2xl">
                <div className="text-5xl mb-6">⚠️</div>
@@ -622,7 +723,7 @@ const Gallery: React.FC = () => {
 
                {pendingDeleteItem && (
                  <div className="w-20 h-28 mx-auto mb-6 rounded-xl overflow-hidden border border-red-900/20">
-                   <img src={apiService.buildFileUrl(pendingDeleteItem.thumbnail_url ?? pendingDeleteItem.thumbnail_path ?? pendingDeleteItem.file_url)} className="w-full h-full object-cover" alt="" />
+                   <img src={apiService.buildFileUrl(pendingDeleteItem.thumbnail_url ?? pendingDeleteItem.thumbnail_path ?? pendingDeleteItem.file_url, undefined, pendingDeleteItem.private_access_token)} className="w-full h-full object-cover" alt="" />
                  </div>
                )}
 

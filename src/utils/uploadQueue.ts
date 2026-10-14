@@ -4,6 +4,8 @@ export interface PendingUploadChunk {
   size: number;
 }
 
+export type PendingUploadStatus = 'pending' | 'running' | 'failed' | 'done';
+
 export interface PendingUpload {
   id: string;
   fileName: string;
@@ -15,7 +17,7 @@ export interface PendingUpload {
   totalChunks: number;
   completedChunks: number[];
   uploadedBytes: number;
-  status: 'pending' | 'running' | 'failed' | 'done';
+  status: PendingUploadStatus;
   createdAt: number;
   lastError?: string;
   chunks: PendingUploadChunk[];
@@ -23,6 +25,10 @@ export interface PendingUpload {
   authToken?: string;
   uuid?: string;
 }
+
+export type StoredPendingUpload = Omit<PendingUpload, 'status'> & {
+  status: string;
+};
 
 const DB_NAME = 'album-bd-upload-db';
 const STORE_NAME = 'uploads';
@@ -59,24 +65,24 @@ export async function updatePendingUpload(upload: PendingUpload): Promise<void> 
   await savePendingUpload(upload);
 }
 
-export async function getPendingUploads(): Promise<PendingUpload[]> {
+export async function getPendingUploads(): Promise<StoredPendingUpload[]> {
   const db = await openDb();
-  const result = await new Promise<PendingUpload[]>((resolve, reject) => {
+  const result = await new Promise<StoredPendingUpload[]>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const request = tx.objectStore(STORE_NAME).getAll();
-    request.onsuccess = () => resolve(request.result as PendingUpload[]);
+    request.onsuccess = () => resolve(request.result as StoredPendingUpload[]);
     request.onerror = () => reject(request.error);
   });
   db.close();
   return result;
 }
 
-export async function getPendingUpload(id: string): Promise<PendingUpload | null> {
+export async function getPendingUpload(id: string): Promise<StoredPendingUpload | null> {
   const db = await openDb();
-  const result = await new Promise<PendingUpload | null>((resolve, reject) => {
+  const result = await new Promise<StoredPendingUpload | null>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const request = tx.objectStore(STORE_NAME).get(id);
-    request.onsuccess = () => resolve((request.result as PendingUpload | undefined) ?? null);
+    request.onsuccess = () => resolve((request.result as StoredPendingUpload | undefined) ?? null);
     request.onerror = () => reject(request.error);
   });
   db.close();

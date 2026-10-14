@@ -42,6 +42,7 @@ const ReelsViewer: React.FC = () => {
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const lastActiveId = useRef<number | null>(null);
   const isMountedRef = useRef(true);
+  const prefetchedVideoIds = useRef<Set<number>>(new Set());
 
   const activeItem = useMemo(
     () => items.find((item) => item.id === activeId) ?? null,
@@ -116,13 +117,41 @@ const ReelsViewer: React.FC = () => {
       if (controlsTimeout.current) {
         window.clearTimeout(controlsTimeout.current);
       }
+      prefetchedVideoIds.current.clear();
     };
   }, []);
 
   const resolveMediaUrl = useCallback((item: MediaItem, kind: 'image' | 'video') => {
     const sourcePath = item.file_url || item.file_path;
-    return sourcePath ? apiService.buildFileUrl(sourcePath, kind) : '';
+    return sourcePath ? apiService.buildFileUrl(sourcePath, kind, item.private_access_token) : '';
   }, []);
+
+  const prefetchNeighborMedia = useCallback(() => {
+    if (activeIndex < 0 || !items.length) return;
+
+    const rangeStart = Math.max(0, activeIndex - 1);
+    const rangeEnd = Math.min(items.length - 1, activeIndex + 2);
+
+    for (let index = rangeStart; index <= rangeEnd; index += 1) {
+      const item = items[index];
+      if (!item || item.type !== 'video') continue;
+
+      const id = item.id;
+      if (!id || prefetchedVideoIds.current.has(id)) continue;
+
+      const sourcePath = item.file_url || item.file_path;
+      if (!sourcePath) continue;
+
+      prefetchedVideoIds.current.add(id);
+      const videoUrl = apiService.buildFileUrl(sourcePath, 'video', item.private_access_token);
+      const probe = document.createElement('video');
+      probe.preload = 'auto';
+      probe.muted = true;
+      probe.playsInline = true;
+      probe.src = videoUrl;
+      probe.load();
+    }
+  }, [activeIndex, items]);
 
   const updateBuffered = useCallback((video: HTMLVideoElement | null) => {
     if (!video) return;
@@ -139,7 +168,7 @@ const ReelsViewer: React.FC = () => {
     const sourcePath = item.file_url || item.file_path;
     if (!video || !sourcePath) return;
 
-    const videoUrl = apiService.buildFileUrl(sourcePath, 'video');
+    const videoUrl = apiService.buildFileUrl(sourcePath, 'video', item.private_access_token);
     if (video.src !== videoUrl) {
       video.src = videoUrl;
       video.load();
@@ -294,6 +323,10 @@ const ReelsViewer: React.FC = () => {
   }, [items, targetId]);
 
   useEffect(() => {
+    prefetchNeighborMedia();
+  }, [prefetchNeighborMedia]);
+
+  useEffect(() => {
     if (!activeId || !items.length) return;
 
     if (lastActiveId.current === activeId) return;
@@ -389,14 +422,19 @@ const ReelsViewer: React.FC = () => {
         {items.map((item) => {
           const isSelected = item.id?.toString() === targetId;
           const isActive = item.id === activeId;
+          const itemIndex = items.findIndex((entry) => entry.id === item.id);
+          const isNeighbor = itemIndex >= 0 && activeIndex >= 0 && Math.abs(itemIndex - activeIndex) <= 1;
           const mediaUrl = resolveMediaUrl(item, item.type === 'video' ? 'video' : 'image');
+          const posterUrl = item.type === 'video'
+            ? (item.thumbnail_path ? apiService.buildFileUrl(item.thumbnail_path, 'video', item.private_access_token) : undefined)
+            : undefined;
           return (
             <div
               key={item.id}
               data-id={item.id}
               className="relative h-full w-full snap-start overflow-hidden bg-[#070710]"
             >
-              <div className="absolute inset-0 bg-gradient-to-b from-[#070710] via-[#070710]/90 to-[#070710]" />
+              <div className="absolute inset-0 bg-linear-to-b from-[#070710] via-[#070710]/90 to-[#070710]" />
 
               <div className="absolute inset-x-0 top-6 z-20 px-5 transition-opacity duration-300"
                 style={{ opacity: showControls && isActive ? 1 : 0, pointerEvents: showControls && isActive ? 'auto' : 'none' }}
@@ -429,13 +467,16 @@ const ReelsViewer: React.FC = () => {
                           videoRefs.current[item.id!] = el;
                         }
                       }}
-                      src={mediaUrl}
+                      src={isActive || isNeighbor ? mediaUrl : undefined}
+                      poster={posterUrl}
                       className="max-h-full max-w-full object-contain"
                       loop
                       playsInline
+                      muted={!isActive}
                       controls={false}
                       crossOrigin="anonymous"
-                      preload="metadata"
+                      preload={isActive ? 'auto' : isNeighbor ? 'metadata' : 'none'}
+                      autoPlay={isActive}
                       onLoadedData={() => {
                         if (isActive && videoRefs.current[item.id!]) {
                           updateVideoControls(videoRefs.current[item.id!]);
@@ -473,6 +514,7 @@ const ReelsViewer: React.FC = () => {
                       alt=""
                       crossOrigin="anonymous"
                       loading={isActive ? 'eager' : 'lazy'}
+                      decoding="async"
                       onLoad={() => {
                         if (isSelected) {
                           setIsContentReady(true);
@@ -489,7 +531,7 @@ const ReelsViewer: React.FC = () => {
 
               {showControls && isActive && item.type === 'video' && (
                 <>
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#070710]/95 via-[#070710]/40 to-transparent transition-opacity duration-300" />
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-linear-to-t from-[#070710]/95 via-[#070710]/40 to-transparent transition-opacity duration-300" />
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <button
                       type="button"
@@ -513,7 +555,7 @@ const ReelsViewer: React.FC = () => {
               >
                 <div className="mb-3 flex items-center gap-3">
                   <span
-                    className="rounded-full px-3 py-[3px] text-[9px] font-black uppercase tracking-[0.22em] text-white/90"
+                    className="rounded-full px-3 py-0.75 text-[9px] font-black uppercase tracking-[0.22em] text-white/90"
                     style={{ background: 'rgba(124,16,57,0.85)', border: '1px solid rgba(124,16,57,0.4)' }}
                   >
                     {item.tag || 'Reel'}
