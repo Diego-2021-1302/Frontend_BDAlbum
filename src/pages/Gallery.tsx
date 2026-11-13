@@ -41,12 +41,12 @@ const MediaCard = React.memo(({ item, index, onAction, onClick }: {
 }) => {
   const isVideo = item.type === 'video';
   const [loaded, setLoaded] = useState(false);
-  const [isInView, setIsInView] = useState(index < 4);
+  const [isInView, setIsInView] = useState(index < 8);
   const [retryCount, setRetryCount] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (index < 4) return;
+    if (index < 8) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -54,7 +54,7 @@ const MediaCard = React.memo(({ item, index, onAction, onClick }: {
           observer.disconnect();
         }
       },
-      { rootMargin: '100px' }
+      { rootMargin: '600px' }
     );
     if (cardRef.current) observer.observe(cardRef.current);
     return () => observer.disconnect();
