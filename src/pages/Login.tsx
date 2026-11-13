@@ -23,15 +23,20 @@ const Login: React.FC = () => {
     video: videoUrl
   });
 
-  // Intentar autocompletar desde archivo local al montar
+  // Intentar autocompletar e iniciar sincronización forzada al montar
   React.useEffect(() => {
-    fetchLocalConfig();
-  }, [fetchLocalConfig]);
+    const init = async () => {
+      await fetchLocalConfig();
+      await fetchGlobalConfig(true);
+    };
+    init();
 
-  // Sincronización con la nube (opcional, si ya existe un backend configurado)
-  React.useEffect(() => {
-    if (baseUrl) fetchGlobalConfig();
-  }, [baseUrl, fetchGlobalConfig]);
+    const handleFocus = () => {
+      fetchGlobalConfig(true);
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [fetchLocalConfig, fetchGlobalConfig]);
 
   React.useEffect(() => {
     setTempConfig({ api: baseUrl, media: mediaUrl, upload: uploadUrl, video: videoUrl });
@@ -66,14 +71,15 @@ const Login: React.FC = () => {
     setError(null);
 
     try {
-      const api = baseUrl || DEFAULT_API_BASE_URL;
-      const res = await apiService.login(identity, pin, api);
+      const currentApi = useAuthStore.getState().baseUrl || DEFAULT_API_BASE_URL;
+      const res = await apiService.login(identity, pin, currentApi);
       
       if (res && res.token) {
         localStorage.setItem('app_user_id', identity);
         
         setTimeout(async () => {
-          await storeLogin(res.user || { id: 0, username: identity }, res.token, api);
+          const activeApi = useAuthStore.getState().baseUrl || currentApi;
+          await storeLogin(res.user || { id: 0, username: identity }, res.token, activeApi);
           navigate('/');
         }, 500);
       } else {

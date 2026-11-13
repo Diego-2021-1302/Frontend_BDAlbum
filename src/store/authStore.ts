@@ -10,6 +10,7 @@ import {
     setPersistedMediaUrl,
     fetchLocalNodosConfig
 } from '../config/apiConfig';
+import { clearFileUrlCache } from '../api/api';
 
 interface AuthState {
   user: User | null;
@@ -24,7 +25,7 @@ interface AuthState {
   saveGlobalConfig: (config: {api: string, media: string, upload: string, video: string}) => Promise<boolean>;
   login: (userData: User, token: string, url?: string) => Promise<void>;
   logout: () => void;
-  fetchGlobalConfig: () => Promise<void>;
+  fetchGlobalConfig: (force?: boolean) => Promise<void>;
   fetchLocalConfig: () => Promise<void>;
 }
 
@@ -45,6 +46,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     setBaseUrl: (url) => {
       const cleanUrl = setPersistedBaseUrl(url);
       set({ baseUrl: cleanUrl });
+      clearFileUrlCache();
     },
 
     saveGlobalConfig: async (config) => {
@@ -60,6 +62,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           videoUrl: config.video,
           isUpdatingGlobal: true
       });
+      clearFileUrlCache();
 
       const success = await updateGlobalBaseUrl(config);
       setTimeout(() => set({ isUpdatingGlobal: false }), 5000);
@@ -88,6 +91,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           });
 
           set({ baseUrl, mediaUrl, uploadUrl, videoUrl });
+          clearFileUrlCache();
           console.log('✅ Red distribuida lista y pre-conectada');
 
           // Intento de sincronizar inmediatamente con el backend (POST a /api/config-url)
@@ -107,44 +111,41 @@ export const useAuthStore = create<AuthState>((set, get) => {
       }
     },
 
-    fetchGlobalConfig: async () => {
-      if (get().isUpdatingGlobal) return;
+    fetchGlobalConfig: async (force = false) => {
+      if (get().isUpdatingGlobal && !force) return;
 
       try {
-        const data = await fetchGlobalBaseUrl();
-        if (!data) return;
+        const data = await fetchGlobalBaseUrl(undefined, force);
+        if (!data || !data.baseUrl) return;
 
         const { baseUrl, mediaUrl, uploadUrl, videoUrl } = data;
+        let changed = false;
 
-        // VERIFICACIÓN CRÍTICA: ¿Ha cambiado el túnel de Cloudflare?
-        const currentStoredBaseUrl = get().baseUrl;
-
-        if (baseUrl && baseUrl !== currentStoredBaseUrl) {
-           console.warn('⚠️ Se detectaron nuevas URLs de Cloudflare. El túnel anterior ha caducado.');
-
-           // Si el usuario estaba autenticado, forzamos logout para re-sincronizar con el nuevo backend
-           if (get().isAuthenticated) {
-              console.log('🔒 Forzando cierre de sesión por cambio de infraestructura...');
-              localStorage.removeItem('auth_token');
-              set({ user: null, isAuthenticated: false });
-           }
-
-           // Actualizamos las nuevas URLs antes de ir al Login
+        if (baseUrl && baseUrl !== get().baseUrl) {
+           console.warn('⚡ URL de API actualizada desde la nube:', baseUrl);
            setPersistedBaseUrl(baseUrl);
            set({ baseUrl });
+           changed = true;
         }
 
         if (mediaUrl && mediaUrl !== get().mediaUrl) {
           setPersistedMediaUrl(mediaUrl);
           set({ mediaUrl });
+          changed = true;
         }
         if (uploadUrl && uploadUrl !== get().uploadUrl) {
           localStorage.setItem('upload_url', uploadUrl);
           set({ uploadUrl });
+          changed = true;
         }
         if (videoUrl && videoUrl !== get().videoUrl) {
           localStorage.setItem('video_url', videoUrl);
           set({ videoUrl });
+          changed = true;
+        }
+
+        if (changed) {
+          clearFileUrlCache();
         }
 
         // Reforzar pre-conexión tras sincronización global

@@ -4,8 +4,12 @@ export const UPLOAD_URL_KEY = 'upload_url';
 export const VIDEO_URL_KEY = 'video_url';
 export const DEFAULT_API_BASE_URL = '';
 
-const CONFIG_TTL_MS = 30000;
+const CONFIG_TTL_MS = 15000;
 let globalConfigCache: { value: {baseUrl: string; mediaUrl: string; uploadUrl: string; videoUrl: string}; expiresAt: number } | null = null;
+
+export function clearGlobalConfigCache(): void {
+  globalConfigCache = null;
+}
 
 const normalizeConfig = (data: any) => ({
   baseUrl: (data?.baseUrl || '').trim().replace(/\/$/, ''),
@@ -50,44 +54,66 @@ export async function fetchLocalNodosConfig(): Promise<{baseUrl: string, mediaUr
   }
 }
 
-export async function fetchGlobalBaseUrl(currentBaseUrl?: string): Promise<{baseUrl: string, mediaUrl: string, uploadUrl: string, videoUrl: string} | null> {
+export async function fetchGlobalBaseUrl(currentBaseUrl?: string, force = false): Promise<{baseUrl: string, mediaUrl: string, uploadUrl: string, videoUrl: string} | null> {
   try {
     const now = Date.now();
-    if (!currentBaseUrl && globalConfigCache && now < globalConfigCache.expiresAt) {
+    if (!force && !currentBaseUrl && globalConfigCache && now < globalConfigCache.expiresAt) {
       return globalConfigCache.value;
     }
 
-    // Si estamos en Vercel, primero intentamos consultar nuestro propio endpoint de descubrimiento (Redis)
-    const isVercel = window.location.hostname.includes('vercel.app');
-    let host = currentBaseUrl || getPersistedBaseUrl();
+    // Endpoints de descubrimiento en orden de prioridad (consultan Redis)
+    const discoveryEndpoints = [
+      `${window.location.origin}/api/config-url?t=${now}`,
+      `https://frontend-bd-album-nine.vercel.app/api/config-url?t=${now}`
+    ];
 
-    if (isVercel && !currentBaseUrl) {
-      const vercelResp = await fetch(`${window.location.origin}/api/config-url?t=${Date.now()}`, {
-        cache: 'no-store',
-        headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
-      });
-      if (vercelResp.ok) {
-        const vercelData = normalizeConfig(await vercelResp.json());
-        if (vercelData.baseUrl) {
-          if (!currentBaseUrl) {
+    for (const endpoint of discoveryEndpoints) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const resp = await fetch(endpoint, {
+          cache: 'no-store',
+          headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' },
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (resp.ok) {
+          const vercelData = normalizeConfig(await resp.json());
+          if (vercelData.baseUrl) {
             globalConfigCache = { value: vercelData, expiresAt: Date.now() + CONFIG_TTL_MS };
+            return vercelData;
           }
-          return vercelData;
         }
+      } catch (e) {
+        // Siguiente candidato de descubrimiento
       }
     }
 
-    host = host || window.location.origin;
-    const response = await fetch(`${host}/api/config-url?t=${Date.now()}`, {
-      cache: 'no-store',
-      headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
-    });
-    if (!response.ok) return null;
-    const data = normalizeConfig(await response.json());
-    if (!currentBaseUrl) {
-      globalConfigCache = { value: data, expiresAt: Date.now() + CONFIG_TTL_MS };
+    const host = currentBaseUrl || getPersistedBaseUrl();
+    if (host) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const response = await fetch(`${host}/api/config-url?t=${now}`, {
+          cache: 'no-store',
+          headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' },
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (response.ok) {
+          const data = normalizeConfig(await response.json());
+          if (data.baseUrl) {
+            globalConfigCache = { value: data, expiresAt: Date.now() + CONFIG_TTL_MS };
+            return data;
+          }
+        }
+      } catch (e) {
+        // Ignorar
+      }
     }
-    return data;
+
+    return null;
   } catch (error) {
     console.log('No se pudo leer config-url:', error);
     return null;
@@ -111,18 +137,16 @@ export async function updateGlobalBaseUrl(config: {api: string, media: string, u
     });
 
     // 2. Si estamos en Vercel, sincronizar también el descubrimiento (Redis)
-    if (window.location.hostname.includes('vercel.app')) {
-      await fetch(`${window.location.origin}/api/config-url`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            baseUrl: config.api,
-            mediaUrl: config.media,
-            uploadUrl: config.upload,
-            videoUrl: config.video
-        })
-      }).catch(e => console.warn('No se pudo sincronizar Redis de Vercel:', e));
-    }
+    await fetch(`${window.location.origin}/api/config-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+          baseUrl: config.api,
+          mediaUrl: config.media,
+          uploadUrl: config.upload,
+          videoUrl: config.video
+      })
+    }).catch(e => console.warn('No se pudo sincronizar Redis de Vercel:', e));
 
     return response.ok;
   } catch (error) {

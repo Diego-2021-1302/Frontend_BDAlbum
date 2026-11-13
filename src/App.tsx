@@ -45,13 +45,36 @@ const App: React.FC = () => {
       try {
         // Primero intentar autocompletar desde el archivo local generado por el orquestador
         await fetchLocalConfig();
-        // Luego sincronizar con la configuración global (backend)
-        await fetchGlobalConfig();
+        // Luego sincronizar con la configuración global (Redis/nube)
+        await fetchGlobalConfig(true);
       } catch (error) {
         console.error('Error cargando configuración de nodos o global:', error);
       }
     };
     load();
+
+    // Sincronización periódica en segundo plano cada 30 segundos para actualizar URLs si cambian túneles
+    const interval = setInterval(() => {
+      fetchGlobalConfig(true);
+    }, 30000);
+
+    // Re-sincronización cuando la pestaña o la app recupera el foco
+    const handleFocus = () => {
+      fetchGlobalConfig(true);
+    };
+    window.addEventListener('focus', handleFocus);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchGlobalConfig(true);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [fetchGlobalConfig, fetchLocalConfig]);
 
   return (

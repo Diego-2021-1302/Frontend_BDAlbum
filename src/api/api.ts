@@ -6,6 +6,10 @@ const getBaseUrl = () => useAuthStore.getState().baseUrl;
 const fileUrlCache = new Map<string, string>();
 let mediaRequestPromise: Promise<MediaItem[]> | null = null;
 
+export function clearFileUrlCache() {
+  fileUrlCache.clear();
+}
+
 const api = axios.create({
   maxBodyLength: Infinity,
   maxContentLength: Infinity,
@@ -23,15 +27,64 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    const isNetworkError = !error.response || error.code === 'ECONNABORTED' || error.message?.toLowerCase()?.includes('network error') || (error.response && error.response.status >= 502);
+
+    if (isNetworkError && originalRequest && !originalRequest._retry) {
+      originalRequest._retry = true;
+      console.warn('⚠️ Error de red en solicitud API. Actualizando configuración de túneles...');
+      try {
+        await useAuthStore.getState().fetchGlobalConfig(true);
+        const newBaseUrl = getBaseUrl();
+        if (newBaseUrl) {
+          originalRequest.baseURL = newBaseUrl;
+          const token = localStorage.getItem('auth_token');
+          if (token) {
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+          }
+          console.log('🔄 Reintentando solicitud API con nueva baseURL:', newBaseUrl);
+          return api(originalRequest);
+        }
+      } catch (retryErr) {
+        console.error('Error reintentando solicitud tras actualizar túnel:', retryErr);
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
+
 export const apiService = {
   login: async (username: string, password: string, customUrl?: string): Promise<AuthResponse> => {
-    const url = (customUrl || getBaseUrl()).replace(/\/$/, '');
-    const response = await axios.post<AuthResponse>(
-      `${url}/api/login`,
-      { username, password },
-      { headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }
-    );
-    return response.data;
+    let url = (customUrl || getBaseUrl()).replace(/\/$/, '');
+    try {
+      const response = await axios.post<AuthResponse>(
+        `${url}/api/login`,
+        { username, password },
+        { headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, timeout: 10000 }
+      );
+      return response.data;
+    } catch (err: any) {
+      const isNetworkError = !err.response || err.code === 'ECONNABORTED' || err.message?.toLowerCase()?.includes('network error') || (err.response && err.response.status >= 502);
+      if (isNetworkError) {
+        console.warn('⚠️ Error de red al iniciar sesión. Sincronizando nuevas URLs...');
+        await useAuthStore.getState().fetchGlobalConfig(true);
+        const freshUrl = getBaseUrl().replace(/\/$/, '');
+        if (freshUrl && freshUrl !== url) {
+          console.log('🔄 Reintentando login con nueva URL:', freshUrl);
+          const retryResponse = await axios.post<AuthResponse>(
+            `${freshUrl}/api/login`,
+            { username, password },
+            { headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, timeout: 10000 }
+          );
+          return retryResponse.data;
+        }
+      }
+      throw err;
+    }
   },
 
   fetchMedia: async (): Promise<MediaItem[]> => {

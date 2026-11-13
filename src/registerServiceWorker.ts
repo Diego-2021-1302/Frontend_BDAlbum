@@ -1,9 +1,7 @@
 export function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then((registrations) => {
-      for (const registration of registrations) {
-        registration.unregister();
-      }
-    });
-  }
+  if (!('serviceWorker' in navigator)) return;
+
+  void navigator.serviceWorker.register('/sw.js').catch((error) => {
+    console.error('No se pudo registrar el service worker:', error);
+  });
 }

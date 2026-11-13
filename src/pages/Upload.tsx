@@ -32,14 +32,6 @@ const Upload: React.FC = () => {
   const abortControllersRef = React.useRef<Record<string, AbortController>>({});
   const queueProcessingRef = React.useRef(false);
 
-  const UPLOAD_PROGRESS_METADATA_KEY = 'album_bd_upload_progress';
-
-  type StoredUploadProgress = {
-    uploadedBytes: number;
-    currentChunkIndex?: number;
-    currentChunkBytes?: number;
-  };
-
   const normalizeUploadStatus = (status: unknown): PendingUpload['status'] => {
     if (status === 'pending' || status === 'running' || status === 'failed' || status === 'done') {
       return status;
@@ -49,88 +41,35 @@ const Upload: React.FC = () => {
 
   const normalizePendingUpload = (
     upload: Partial<Omit<PendingUpload, 'status'>> & { status?: string | PendingUpload['status'] }
-  ): PendingUpload => ({
-    id: upload.id ?? '',
-    fileName: upload.fileName ?? '',
-    fileSize: upload.fileSize ?? 0,
-    mimeType: upload.mimeType ?? 'application/octet-stream',
-    tag: upload.tag ?? 'B',
-    takenAt: upload.takenAt ?? dayjs().format('YYYY-MM-DD'),
-    description: upload.description ?? '',
-    totalChunks: upload.totalChunks ?? 1,
-    completedChunks: upload.completedChunks ?? [],
-    uploadedBytes: upload.uploadedBytes ?? 0,
-    status: normalizeUploadStatus(upload.status),
-    createdAt: upload.createdAt ?? Date.now(),
-    chunks: upload.chunks ?? [],
-    uploadUrl: upload.uploadUrl ?? '',
-    authToken: upload.authToken,
-    uuid: upload.uuid,
-    lastError: upload.lastError,
-  });
+  ): PendingUpload => {
+    const chunks = upload.chunks ?? [];
+    const completedChunks = upload.completedChunks ?? [];
+    const completedBytes = chunks
+      .filter((chunk) => completedChunks.includes(chunk.index))
+      .reduce((total, chunk) => total + chunk.size, 0);
 
-  const loadStoredUploadProgress = (uploadId: string): StoredUploadProgress | undefined => {
-    try {
-      const stored = localStorage.getItem(UPLOAD_PROGRESS_METADATA_KEY);
-      if (!stored) return undefined;
-      const parsed = JSON.parse(stored) as Record<string, StoredUploadProgress>;
-      return parsed[uploadId];
-    } catch {
-      return undefined;
-    }
-  };
-
-  const saveStoredUploadProgress = (uploadId: string, progress: StoredUploadProgress) => {
-    try {
-      const stored = localStorage.getItem(UPLOAD_PROGRESS_METADATA_KEY);
-      const parsed = stored ? JSON.parse(stored) as Record<string, StoredUploadProgress> : {};
-      parsed[uploadId] = { ...parsed[uploadId], ...progress };
-      localStorage.setItem(UPLOAD_PROGRESS_METADATA_KEY, JSON.stringify(parsed));
-    } catch {
-      // No-op
-    }
-  };
-
-  const removeStoredUploadProgress = (uploadId: string) => {
-    try {
-      const stored = localStorage.getItem(UPLOAD_PROGRESS_METADATA_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored) as Record<string, StoredUploadProgress>;
-      delete parsed[uploadId];
-      localStorage.setItem(UPLOAD_PROGRESS_METADATA_KEY, JSON.stringify(parsed));
-    } catch {
-      // No-op
-    }
-  };
-
-  const clearAllStoredUploadProgress = () => {
-    try {
-      localStorage.removeItem(UPLOAD_PROGRESS_METADATA_KEY);
-    } catch {
-      // No-op
-    }
-  };
-
-  const hydrateStoredProgress = (upload: PendingUpload) => {
-    const normalizedUpload = {
-      ...upload,
+    return {
+      id: upload.id ?? '',
+      fileName: upload.fileName ?? '',
+      fileSize: upload.fileSize ?? 0,
+      mimeType: upload.mimeType ?? 'application/octet-stream',
+      tag: upload.tag ?? 'B',
+      takenAt: upload.takenAt ?? dayjs().format('YYYY-MM-DD'),
+      description: upload.description ?? '',
+      totalChunks: upload.totalChunks ?? 1,
+      completedChunks,
+      uploadedBytes: Math.min(upload.fileSize ?? 0, completedBytes),
       status: normalizeUploadStatus(upload.status),
+      createdAt: upload.createdAt ?? Date.now(),
+      chunks,
+      uploadUrl: upload.uploadUrl ?? '',
+      authToken: upload.authToken,
+      uuid: upload.uuid,
+      lastError: upload.lastError,
     };
-
-    const stored = loadStoredUploadProgress(normalizedUpload.id);
-    const hydrated = stored && stored.uploadedBytes > normalizedUpload.uploadedBytes
-      ? {
-          ...normalizedUpload,
-          uploadedBytes: Math.min(normalizedUpload.fileSize, stored.uploadedBytes),
-        }
-      : normalizedUpload;
-
-    if (hydrated.status === 'pending' && hydrated.uploadedBytes > 0) {
-      return { ...hydrated, status: 'running' };
-    }
-
-    return hydrated;
   };
+
+  const hydrateStoredProgress = (upload: PendingUpload) => upload;
 
   const isVideo = files[0]?.type.startsWith('video/');
 
@@ -218,6 +157,23 @@ const Upload: React.FC = () => {
   }, [editId, isEditMode, editItem]);
 
   useEffect(() => {
+    const handleServiceWorkerMessage = (event: MessageEvent<{ type?: string; upload?: Partial<PendingUpload> }>) => {
+      if (event.data?.type !== 'UPLOAD_QUEUE_UPDATE' || !event.data.upload) return;
+      const updatedUpload = normalizePendingUpload(event.data.upload);
+      setQueuedUploads((current) => current.some((item) => item.id === updatedUpload.id)
+        ? current.map((item) => item.id === updatedUpload.id ? updatedUpload : item)
+        : [...current, updatedUpload]);
+      if (updatedUpload.status === 'done') {
+        setUploadMessage('Carga completada correctamente.');
+        setUploadMessageTone('success');
+        void queryClient.invalidateQueries({ queryKey: ['media'], refetchType: 'all' });
+      } else if (updatedUpload.status === 'failed') {
+        setUploadMessage(updatedUpload.lastError || 'No se pudo completar la subida.');
+        setUploadMessageTone('error');
+      }
+    };
+
+    navigator.serviceWorker?.addEventListener('message', handleServiceWorkerMessage);
     const restorePendingUploads = async () => {
       try {
         const pendingUploads = await getPendingUploads();
@@ -226,7 +182,8 @@ const Upload: React.FC = () => {
           .map((upload) => hydrateStoredProgress(upload));
         setQueuedUploads(hydratedUploads);
         if (hydratedUploads.length) {
-          await processPendingUploads();
+          const handledByServiceWorker = await scheduleBackgroundSync();
+          if (!handledByServiceWorker) await processPendingUploads();
         }
       } catch (error) {
         console.error('No se pudieron restaurar las subidas pendientes:', error);
@@ -238,15 +195,29 @@ const Upload: React.FC = () => {
       void getPendingUploads().then((pendingUploads) => {
         const normalizedPending = pendingUploads.map((upload) => normalizePendingUpload(upload));
         setQueuedUploads((currentQueued) => {
-          const completedOrFailed = currentQueued.filter((item) => item.status === 'done' || item.status === 'failed');
-          const pendingOrRunning = normalizedPending.filter((item) => !completedOrFailed.some((completed) => completed.id === item.id));
-          return [...completedOrFailed, ...pendingOrRunning];
+          const currentById = new Map(currentQueued.map((item) => [item.id, item]));
+          const refreshed = normalizedPending.map((item) => {
+            const current = currentById.get(item.id);
+            if (!current) return item;
+            return {
+              ...item,
+              uploadedBytes: Math.max(item.uploadedBytes, current.uploadedBytes),
+              status: current.status === 'done' || current.status === 'failed' ? current.status : item.status,
+              lastError: item.lastError ?? current.lastError,
+            };
+          });
+          const removedFromStore = currentQueued.filter((item) =>
+            !normalizedPending.some((pending) => pending.id === item.id) &&
+            (item.status === 'done' || item.status === 'failed')
+          );
+          return [...refreshed, ...removedFromStore];
         });
       });
     }, 1000);
 
     return () => {
       window.clearInterval(interval);
+      navigator.serviceWorker?.removeEventListener('message', handleServiceWorkerMessage);
       cleanupPreviews();
     };
   }, []);
@@ -303,18 +274,22 @@ const Upload: React.FC = () => {
   };
 
   const scheduleBackgroundSync = async () => {
-    if ('serviceWorker' in navigator && 'SyncManager' in window) {
+    if (!('serviceWorker' in navigator)) return false;
+    try {
+      const registration = await navigator.serviceWorker.ready as ServiceWorkerRegistration & {
+        sync?: { register: (tag: string) => Promise<void> };
+      };
+      if (!registration.active) return false;
       try {
-        const registration = (await navigator.serviceWorker.ready) as ServiceWorkerRegistration & {
-          sync?: { register: (tag: string) => Promise<void> };
-        };
-        const syncManager = registration.sync;
-        if (syncManager) {
-          await syncManager.register('upload-sync');
-        }
+        await registration.sync?.register('upload-sync');
       } catch (error) {
         console.warn('No se pudo registrar background sync:', error);
       }
+      registration.active.postMessage({ type: 'PROCESS_UPLOADS' });
+      return true;
+    } catch (error) {
+      console.warn('No se pudo iniciar la subida en segundo plano:', error);
+      return false;
     }
   };
 
@@ -380,8 +355,15 @@ const Upload: React.FC = () => {
   const cancelAllUploads = async () => {
     Object.values(abortControllersRef.current).forEach((controller) => controller.abort());
     abortControllersRef.current = {};
+    if ('serviceWorker' in navigator) {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        registration.active?.postMessage({ type: 'CANCEL_UPLOADS' });
+      } catch (error) {
+        console.warn('No se pudo cancelar la subida del service worker:', error);
+      }
+    }
     await clearPendingUploads();
-    clearAllStoredUploadProgress();
     setQueuedUploads([]);
     setUploading(false);
     setUploadMessage('Subida cancelada. Todo ha sido limpiado.');
@@ -394,7 +376,7 @@ const Upload: React.FC = () => {
     setQueuedUploads((current) => current.map((item) => item.id === runningUpload.id ? runningUpload : item));
 
     const { chunkSize, concurrency } = getUploadStrategy(upload.fileSize);
-    const totalChunks = Math.max(1, Math.ceil(upload.fileSize / chunkSize));
+    const totalChunks = upload.totalChunks || Math.max(1, Math.ceil(upload.fileSize / chunkSize));
     const chunkQueue = upload.chunks.slice();
     const completed = new Set(upload.completedChunks);
     const uuid = upload.uuid || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -403,23 +385,16 @@ const Upload: React.FC = () => {
     const controller = new AbortController();
     abortControllersRef.current[upload.id] = controller;
 
-    const progressSaveThreshold = Math.max(256 * 1024, Math.floor(upload.fileSize / 120));
-    let lastPersistedBytes = uploadedBytes;
     let lastDisplayedBytes = uploadedBytes;
+    const inFlightChunkBytes = new Map<number, number>();
 
-    const updateProgress = (nextTotalBytes: number, persist = false) => {
-      const clampedTotal = Math.min(upload.fileSize, Math.max(uploadedBytes, nextTotalBytes));
-      const displayedBytes = Math.max(lastDisplayedBytes, clampedTotal);
-
-      if (displayedBytes > lastDisplayedBytes) {
-        lastDisplayedBytes = displayedBytes;
-      }
-
-      if (persist || displayedBytes - lastPersistedBytes >= progressSaveThreshold || displayedBytes === upload.fileSize) {
-        lastPersistedBytes = displayedBytes;
-        saveStoredUploadProgress(upload.id, { uploadedBytes: displayedBytes });
-      }
-
+    const updateProgress = () => {
+      const completedBytes = upload.chunks
+        .filter((chunk) => completed.has(chunk.index))
+        .reduce((total, chunk) => total + chunk.size, 0);
+      const inFlightBytes = Array.from(inFlightChunkBytes.values()).reduce((total, bytes) => total + bytes, 0);
+      const displayedBytes = Math.max(lastDisplayedBytes, Math.min(upload.fileSize, completedBytes + inFlightBytes));
+      lastDisplayedBytes = displayedBytes;
       uploadedBytes = displayedBytes;
 
       const updatedUpload: PendingUpload = {
@@ -456,16 +431,18 @@ const Upload: React.FC = () => {
           if (!event?.loaded) return;
 
           const chunkProgress = Math.min(next.size, event.loaded);
-          const projectedBytes = Math.max(uploadedBytes, uploadedBytes) + chunkProgress;
-          updateProgress(projectedBytes, false);
+          inFlightChunkBytes.set(next.index, Math.max(inFlightChunkBytes.get(next.index) ?? 0, chunkProgress));
+          updateProgress();
         };
 
         try {
           await apiService.uploadChunk(formData, onChunkProgress, controller.signal);
+          inFlightChunkBytes.delete(next.index);
           completed.add(next.index);
-          const completedChunkBytes = next.size;
-          uploadedBytes = Math.min(upload.fileSize, uploadedBytes + completedChunkBytes);
-          updateProgress(uploadedBytes, true);
+          updateProgress();
+          uploadedBytes = Math.min(upload.fileSize, upload.chunks
+            .filter((chunk) => completed.has(chunk.index))
+            .reduce((total, chunk) => total + chunk.size, 0));
           const persistedUpload: PendingUpload = {
             ...upload,
             completedChunks: Array.from(completed),
@@ -475,6 +452,8 @@ const Upload: React.FC = () => {
           };
           await updatePendingUpload(persistedUpload);
         } catch (err: any) {
+          inFlightChunkBytes.delete(next.index);
+          updateProgress();
           if (err?.name === 'AbortError' || err?.code === 'ERR_CANCELED' || err?.message === 'cancelled') {
             return;
           }
@@ -490,7 +469,32 @@ const Upload: React.FC = () => {
     };
 
     const workers = Array.from({ length: Math.min(concurrency, totalChunks) }, () => worker());
-    await Promise.all(workers);
+    try {
+      await Promise.all(workers);
+    } catch (err: any) {
+      if (controller.signal.aborted) {
+        delete abortControllersRef.current[upload.id];
+        return;
+      }
+      const completedBytes = upload.chunks
+        .filter((chunk) => completed.has(chunk.index))
+        .reduce((total, chunk) => total + chunk.size, 0);
+      const failedUpload: PendingUpload = {
+        ...upload,
+        completedChunks: Array.from(completed),
+        uploadedBytes: completedBytes,
+        status: 'failed',
+        lastError: err?.response?.data?.message || err?.message || 'No se pudo completar la subida',
+      };
+      await updatePendingUpload(failedUpload);
+      setQueuedUploads((current) => current.map((item) => item.id === failedUpload.id ? failedUpload : item));
+      delete abortControllersRef.current[upload.id];
+      return;
+    }
+    if (controller.signal.aborted) {
+      delete abortControllersRef.current[upload.id];
+      return;
+    }
 
     const finalUpload: PendingUpload = {
       ...upload,
@@ -506,7 +510,6 @@ const Upload: React.FC = () => {
 
     if (finalUpload.status === 'done') {
       await deletePendingUpload(finalUpload.id);
-      removeStoredUploadProgress(finalUpload.id);
       await queryClient.invalidateQueries({ queryKey: ['media'], refetchType: 'all' });
       setUploadMessage('Carga completada correctamente.');
       setUploadMessageTone('success');
@@ -561,8 +564,8 @@ const Upload: React.FC = () => {
       setDate(dayjs().format('YYYY-MM-DD'));
       setWarning(null);
 
-      void processPendingUploads();
-      void scheduleBackgroundSync();
+      const handledByServiceWorker = await scheduleBackgroundSync();
+      if (!handledByServiceWorker) void processPendingUploads();
     } catch (err: any) {
       console.error('Error al encolar recuerdos:', err);
       const isSizeError = err?.response?.status === 413;
@@ -762,7 +765,11 @@ const Upload: React.FC = () => {
                   <p className="mb-4 text-[12px] leading-6 text-white/50">El recuerdo ya está en la cola. Puedes seguir agregando más mientras se sube en segundo plano.</p>
                   <div className="space-y-3">
                     {queuedUploads.map((upload) => {
-                      const percent = upload.fileSize ? Math.round((upload.uploadedBytes / upload.fileSize) * 100) : 0;
+                      const percent = upload.status === 'done'
+                        ? 100
+                        : upload.fileSize
+                          ? Math.min(99, Math.floor((upload.uploadedBytes / upload.fileSize) * 100))
+                          : 0;
                       const statusLabel = upload.status === 'pending'
                         ? 'Pendiente'
                         : upload.status === 'running'
