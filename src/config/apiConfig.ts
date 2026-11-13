@@ -122,9 +122,12 @@ export async function fetchGlobalBaseUrl(currentBaseUrl?: string, force = false)
 
 export async function updateGlobalBaseUrl(config: {api: string, media: string, upload: string, video: string}): Promise<boolean> {
   try {
-    const host = config.api || getPersistedBaseUrl() || window.location.origin;
+    const host = (config.api || getPersistedBaseUrl() || '').trim().replace(/\/$/, '');
+    if (!host || !host.startsWith('http')) return false;
 
-    // 1. Actualizar el Backend (Túnel actual)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+
     const response = await fetch(`${host}/api/config-url`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -133,24 +136,27 @@ export async function updateGlobalBaseUrl(config: {api: string, media: string, u
           mediaUrl: config.media,
           uploadUrl: config.upload,
           videoUrl: config.video
-      })
-    });
+      }),
+      signal: controller.signal
+    }).catch(() => null);
 
-    // 2. Si estamos en Vercel, sincronizar también el descubrimiento (Redis)
-    await fetch(`${window.location.origin}/api/config-url`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-          baseUrl: config.api,
-          mediaUrl: config.media,
-          uploadUrl: config.upload,
-          videoUrl: config.video
-      })
-    }).catch(e => console.warn('No se pudo sincronizar Redis de Vercel:', e));
+    clearTimeout(timeoutId);
 
-    return response.ok;
+    if (window.location.hostname.includes('vercel.app')) {
+      await fetch(`${window.location.origin}/api/config-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            baseUrl: config.api,
+            mediaUrl: config.media,
+            uploadUrl: config.upload,
+            videoUrl: config.video
+        })
+      }).catch(() => null);
+    }
+
+    return !!response?.ok;
   } catch (error) {
-    console.log('No se pudo actualizar config-url:', error);
     return false;
   }
 }

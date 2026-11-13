@@ -41,12 +41,12 @@ const MediaCard = React.memo(({ item, index, onAction, onClick }: {
 }) => {
   const isVideo = item.type === 'video';
   const [loaded, setLoaded] = useState(false);
-  const [isInView, setIsInView] = useState(index < 8);
+  const [isInView, setIsInView] = useState(index < 12);
   const [retryCount, setRetryCount] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (index < 8) return;
+    if (index < 12) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -54,7 +54,7 @@ const MediaCard = React.memo(({ item, index, onAction, onClick }: {
           observer.disconnect();
         }
       },
-      { rootMargin: '600px' }
+      { rootMargin: '1200px' }
     );
     if (cardRef.current) observer.observe(cardRef.current);
     return () => observer.disconnect();
@@ -64,7 +64,6 @@ const MediaCard = React.memo(({ item, index, onAction, onClick }: {
     if (!isInView) return null;
     if (isVideo && !item.thumbnail_path) return null;
     const path = item.thumbnail_path ?? item.file_path;
-    // Añadimos una marca de tiempo por intento para forzar la recarga si falló por 429
     const fileUrl = path ? apiService.buildFileUrl(path, isVideo ? 'video' : 'image', item.private_access_token) : '';
     const cacheBuster = retryCount > 0 ? `${fileUrl.includes('?') ? '&' : '?'}r=${retryCount}` : '';
     return fileUrl ? fileUrl + cacheBuster : null;
@@ -84,7 +83,7 @@ const MediaCard = React.memo(({ item, index, onAction, onClick }: {
       onTouchStart={(e) => onAction(item, e)}
       onClick={() => onClick(item)}
       data-id={item.id}
-      className="group relative aspect-3/4 overflow-hidden rounded-2xl sm:rounded-4xl bg-white/3 border border-white/5 cursor-pointer transform-gpu transition-all duration-500 hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.7)] active:scale-[0.97]"
+      className="group relative aspect-3/4 overflow-hidden rounded-2xl sm:rounded-4xl bg-white/3 border border-white/5 cursor-pointer transform-gpu transition-all duration-300 hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.7)] active:scale-[0.97]"
     >
       <div className="absolute inset-0 bg-linear-to-br from-white/3 to-transparent animate-pulse" />
 
@@ -95,10 +94,10 @@ const MediaCard = React.memo(({ item, index, onAction, onClick }: {
             alt=""
             onLoad={() => setLoaded(true)}
             onError={handleError}
-            className={`w-full h-full object-cover transition-all duration-700 ease-out group-hover:scale-110
-              ${loaded ? 'opacity-100 scale-100' : 'opacity-0 scale-105'}`}
-            loading={index < 4 ? 'eager' : 'lazy'}
-            fetchPriority={index < 4 ? 'high' : 'low'}
+            className={`w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-110
+              ${loaded ? 'opacity-100' : 'opacity-80'}`}
+            loading={index < 12 ? 'eager' : 'lazy'}
+            fetchPriority={index < 12 ? 'high' : 'low'}
             decoding="async"
           />
         ) : isVideo && !item.thumbnail_path ? (
@@ -477,20 +476,10 @@ const Gallery: React.FC = () => {
   const handleMediaClick = useCallback((item: MediaItem) => {
     sessionStorage.setItem('gallery_scroll_pos', window.scrollY.toString());
 
-    // Capturar posición exacta del elemento para el zoom
-    const el = document.querySelector(`[data-id="${item.id}"]`);
-    const rect = el?.getBoundingClientRect();
-
     navigate(`/reels?id=${item.id}&year=${selectedYear}`, {
       state: {
         items: filteredItems,
         returnYear: selectedYear,
-        originRect: rect ? {
-          top: rect.top,
-          left: rect.left,
-          width: rect.width,
-          height: rect.height
-        } : null
       }
     });
   }, [navigate, selectedYear, filteredItems]);

@@ -1,10 +1,79 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { apiService } from '../api/api';
-import { motion, AnimatePresence } from 'framer-motion';
 import { MediaItem } from '../types';
 import dayjs from 'dayjs';
+
+const InstantMediaView: React.FC<{
+  item: MediaItem;
+  isActive: boolean;
+  mediaUrl: string;
+  videoRef: (el: HTMLVideoElement | null) => void;
+  onVideoLoadedData: () => void;
+  onVideoPlay: () => void;
+  onVideoPause: () => void;
+  onVideoTimeUpdate: () => void;
+  onVideoProgress: () => void;
+  onVideoEnded: () => void;
+  toggleControlsVisibility: () => void;
+}> = React.memo(({
+  item,
+  isActive,
+  mediaUrl,
+  videoRef,
+  onVideoLoadedData,
+  onVideoPlay,
+  onVideoPause,
+  onVideoTimeUpdate,
+  onVideoProgress,
+  onVideoEnded,
+  toggleControlsVisibility
+}) => {
+  if (item.type === 'video') {
+    return (
+      <div className="relative h-full w-full flex items-center justify-center overflow-hidden">
+        {isActive && (
+          <video
+            ref={videoRef}
+            src={mediaUrl}
+            className="relative max-h-full max-w-full object-contain"
+            loop
+            playsInline
+            muted={false}
+            controls={false}
+            crossOrigin="anonymous"
+            preload="auto"
+            autoPlay
+            onLoadedData={onVideoLoadedData}
+            onPlay={onVideoPlay}
+            onPause={onVideoPause}
+            onTimeUpdate={onVideoTimeUpdate}
+            onProgress={onVideoProgress}
+            onEnded={onVideoEnded}
+            onClick={toggleControlsVisibility}
+          />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-full w-full flex items-center justify-center overflow-hidden">
+      {isActive && (
+        <img
+          src={mediaUrl}
+          alt=""
+          crossOrigin="anonymous"
+          loading="eager"
+          decoding="async"
+          onClick={toggleControlsVisibility}
+          className="relative max-h-full max-w-full object-contain"
+        />
+      )}
+    </div>
+  );
+});
 
 const ReelsViewer: React.FC = () => {
   const navigate = useNavigate();
@@ -12,20 +81,16 @@ const ReelsViewer: React.FC = () => {
   const [searchParams] = useSearchParams();
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const originRect = location.state?.originRect;
-  const [isZooming, setIsZooming] = useState(!!originRect);
-  const [isReady, setIsReady] = useState(false);
-  const [isContentReady, setIsContentReady] = useState(false);
-  const [activeId, setActiveId] = useState<number | null>(null);
-
   const stateItems = location.state?.items as MediaItem[] | undefined;
   const yearFilter = searchParams.get('year');
   const targetId = searchParams.get('id');
 
+  const [activeId, setActiveId] = useState<number | null>(() => targetId ? Number(targetId) : null);
+
   const { data: allItems = [] } = useQuery<MediaItem[]>({
     queryKey: ['media'],
     queryFn: () => apiService.fetchMedia(),
-    staleTime: 1000 * 60 * 15,
+    staleTime: 1000 * 60 * 30,
     enabled: !stateItems,
   });
 
@@ -40,16 +105,14 @@ const ReelsViewer: React.FC = () => {
   }, [stateItems, allItems, yearFilter]);
 
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
-  const lastActiveId = useRef<number | null>(null);
   const isMountedRef = useRef(true);
-  const prefetchedVideoIds = useRef<Set<number>>(new Set());
 
   const activeItem = useMemo(
     () => items.find((item) => item.id === activeId) ?? null,
     [items, activeId]
   );
 
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [buffered, setBuffered] = useState(0);
@@ -117,7 +180,6 @@ const ReelsViewer: React.FC = () => {
       if (controlsTimeout.current) {
         window.clearTimeout(controlsTimeout.current);
       }
-      prefetchedVideoIds.current.clear();
     };
   }, []);
 
@@ -126,33 +188,6 @@ const ReelsViewer: React.FC = () => {
     return sourcePath ? apiService.buildFileUrl(sourcePath, kind, item.private_access_token) : '';
   }, []);
 
-  const prefetchNeighborMedia = useCallback(() => {
-    if (activeIndex < 0 || !items.length) return;
-
-    const rangeStart = Math.max(0, activeIndex - 1);
-    const rangeEnd = Math.min(items.length - 1, activeIndex + 2);
-
-    for (let index = rangeStart; index <= rangeEnd; index += 1) {
-      const item = items[index];
-      if (!item || item.type !== 'video') continue;
-
-      const id = item.id;
-      if (!id || prefetchedVideoIds.current.has(id)) continue;
-
-      const sourcePath = item.file_url || item.file_path;
-      if (!sourcePath) continue;
-
-      prefetchedVideoIds.current.add(id);
-      const videoUrl = apiService.buildFileUrl(sourcePath, 'video', item.private_access_token);
-      const probe = document.createElement('video');
-      probe.preload = 'auto';
-      probe.muted = true;
-      probe.playsInline = true;
-      probe.src = videoUrl;
-      probe.load();
-    }
-  }, [activeIndex, items]);
-
   const updateBuffered = useCallback((video: HTMLVideoElement | null) => {
     if (!video) return;
     const bufferedRanges = video.buffered;
@@ -160,56 +195,16 @@ const ReelsViewer: React.FC = () => {
     setBuffered(bufferedSeconds);
   }, []);
 
-  const initVideo = useCallback((item: MediaItem) => {
-    const id = item.id;
-    if (!id) return;
-
-    const video = videoRefs.current[id];
-    const sourcePath = item.file_url || item.file_path;
-    if (!video || !sourcePath) return;
-
-    const videoUrl = apiService.buildFileUrl(sourcePath, 'video', item.private_access_token);
-    if (video.src !== videoUrl) {
-      video.src = videoUrl;
-      video.load();
-    }
-  }, []);
-
-  const pauseVideo = useCallback((video: HTMLVideoElement | null) => {
-    if (!video) return;
-    video.pause();
-    video.muted = true;
-  }, []);
-
-  const updateVideoPreload = useCallback((activeId: number | null) => {
-    Object.entries(videoRefs.current).forEach(([idStr, video]) => {
-      if (!video) return;
-      const id = Number(idStr);
-      const isActive = id === activeId;
-      const isNeighbor = activeId !== null && Math.abs(id - activeId) <= 1;
-
-      video.preload = isActive || isNeighbor ? 'auto' : 'metadata';
-    });
-  }, []);
-
   const playVideo = useCallback((video: HTMLVideoElement | null) => {
     if (!video) return;
-
     video.muted = false;
     const playPromise = video.play();
-
     if (playPromise && typeof playPromise.then === 'function') {
       playPromise.catch(() => {
         video.muted = true;
         video.play().catch(() => undefined);
       });
     }
-  }, []);
-
-  const updateVideoControls = useCallback((video: HTMLVideoElement | null) => {
-    if (!video) return;
-    video.muted = false;
-    video.volume = 1;
   }, []);
 
   const setVideoTime = useCallback(
@@ -277,14 +272,8 @@ const ReelsViewer: React.FC = () => {
     }
   }, [activeItem, playVideo]);
 
-  const handleInteraction = useCallback(() => {
-    resetControlsTimer();
-  }, [resetControlsTimer]);
-
-
-  useEffect(() => {
-    isMountedRef.current = true;
-
+  // Posicionamiento síncrono instantáneo antes del render
+  useLayoutEffect(() => {
     if (!items.length) return;
 
     const initialIndex = targetId
@@ -294,93 +283,36 @@ const ReelsViewer: React.FC = () => {
     const fallbackIndex = initialIndex >= 0 ? initialIndex : 0;
     const selectedItem = items[fallbackIndex];
 
-    if (selectedItem?.id) {
+    if (selectedItem?.id && activeId !== selectedItem.id) {
       setActiveId(selectedItem.id);
     }
 
-    const frame = window.requestAnimationFrame(() => {
-      const element = containerRef.current?.children[fallbackIndex] as HTMLElement | undefined;
-      element?.scrollIntoView({ block: 'start', behavior: 'auto' });
-      if (isMountedRef.current) {
-        setIsReady(true);
-      }
-    });
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-      isMountedRef.current = false;
-      lastActiveId.current = null;
-      Object.values(videoRefs.current).forEach((video) => {
-        if (video) {
-          video.pause();
-          video.currentTime = 0;
-          video.src = '';
-          video.load();
-        }
-      });
-      videoRefs.current = {};
-    };
+    const element = containerRef.current?.children[fallbackIndex] as HTMLElement | undefined;
+    if (element) {
+      element.scrollIntoView({ block: 'start', behavior: 'auto' });
+    }
   }, [items, targetId]);
 
-  useEffect(() => {
-    prefetchNeighborMedia();
-  }, [prefetchNeighborMedia]);
-
-  useEffect(() => {
-    if (!activeId || !items.length) return;
-
-    if (lastActiveId.current === activeId) return;
-    lastActiveId.current = activeId;
-
-    const activeItem = items.find((item) => item.id === activeId);
-    if (activeItem?.type === 'video') {
-      initVideo(activeItem);
-    }
-
-    updateVideoPreload(activeId);
-
-    Object.entries(videoRefs.current).forEach(([idStr, video]) => {
-      if (!video) return;
-      const videoId = Number(idStr);
-
-      updateVideoControls(video);
-
-      if (videoId === activeId) {
-        if (video.readyState >= 2) {
-          playVideo(video);
-          setIsPlaying(true);
-          setDuration(video.duration || 0);
-        }
-      } else {
-        pauseVideo(video);
-      }
-    });
-  }, [activeId, items, initVideo, playVideo, pauseVideo, updateVideoPreload, updateVideoControls]);
-
+  // Observer de Scroll para detectar el Reel activo
   useEffect(() => {
     if (!containerRef.current || !items.length) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
         const visibleEntry = entries
-          .filter((entry) => entry.intersectionRatio >= 0.65)
+          .filter((entry) => entry.intersectionRatio >= 0.6)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
 
         if (!visibleEntry) return;
 
         const id = Number(visibleEntry.target.getAttribute('data-id'));
         if (!Number.isNaN(id) && isMountedRef.current) {
-          const item = items.find((entryItem) => entryItem.id === id);
-          if (item?.type === 'video') {
-            initVideo(item);
-          }
           setActiveId(id);
         }
       },
       {
         root: containerRef.current,
-        threshold: [0.65, 0.85, 1.0],
-        rootMargin: '0px 0px -20% 0px',
+        threshold: [0.6, 0.85, 1.0],
       }
     );
 
@@ -389,45 +321,50 @@ const ReelsViewer: React.FC = () => {
 
     return () => {
       observer.disconnect();
-      elements.forEach((element) => observer.unobserve(element));
     };
-  }, [items, initVideo]);
+  }, [items]);
 
+  // Liberación total de ancho de banda al cambiar de Reel activo
   useEffect(() => {
-    if (!isZooming) return;
+    if (!activeId) return;
 
-    const timeout = window.setTimeout(() => {
-      setIsZooming(false);
-    }, 700);
+    Object.entries(videoRefs.current).forEach(([idStr, video]) => {
+      if (!video) return;
+      const videoId = Number(idStr);
 
-    if (isContentReady) {
-      setIsZooming(false);
-    }
-
-    return () => window.clearTimeout(timeout);
-  }, [isZooming, isContentReady]);
-
-  useEffect(() => {
-    if (!isZooming) {
-      setIsContentReady(false);
-    }
-  }, [isZooming]);
+      if (videoId === activeId) {
+        video.muted = false;
+        video.volume = 1;
+        const p = video.play();
+        if (p && typeof p.then === 'function') {
+          p.catch(() => {
+            video.muted = true;
+            video.play().catch(() => undefined);
+          });
+        }
+        setIsPlaying(true);
+      } else {
+        video.pause();
+        try {
+          video.removeAttribute('src');
+          video.load();
+        } catch (e) {
+          // Ignorar
+        }
+      }
+    });
+  }, [activeId]);
 
   return (
     <div className="fixed inset-0 z-100 overflow-hidden bg-black text-white">
       <div
         ref={containerRef}
-        className={`h-full w-full overflow-y-scroll snap-y snap-mandatory no-scrollbar transition-opacity duration-300 ${isReady ? 'opacity-100' : 'opacity-0'}`}
+        className="h-full w-full overflow-y-scroll snap-y snap-mandatory no-scrollbar opacity-100"
       >
         {items.map((item) => {
-          const isSelected = item.id?.toString() === targetId;
           const isActive = item.id === activeId;
-          const itemIndex = items.findIndex((entry) => entry.id === item.id);
-          const isNeighbor = itemIndex >= 0 && activeIndex >= 0 && Math.abs(itemIndex - activeIndex) <= 1;
           const mediaUrl = resolveMediaUrl(item, item.type === 'video' ? 'video' : 'image');
-          const posterUrl = item.type === 'video'
-            ? (item.thumbnail_path ? apiService.buildFileUrl(item.thumbnail_path, 'video', item.private_access_token) : undefined)
-            : undefined;
+
           return (
             <div
               key={item.id}
@@ -436,7 +373,8 @@ const ReelsViewer: React.FC = () => {
             >
               <div className="absolute inset-0 bg-linear-to-b from-[#070710] via-[#070710]/90 to-[#070710]" />
 
-              <div className="absolute inset-x-0 top-6 z-20 px-5 transition-opacity duration-300"
+              <div
+                className="absolute inset-x-0 top-6 z-20 px-5 transition-opacity duration-300"
                 style={{ opacity: showControls && isActive ? 1 : 0, pointerEvents: showControls && isActive ? 'auto' : 'none' }}
               >
                 <div className="flex items-center justify-between gap-3">
@@ -451,82 +389,45 @@ const ReelsViewer: React.FC = () => {
                     </svg>
                   </button>
 
-                  <div className="ml-auto rounded-full bg-black/35 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.35em] text-white/80 shadow-[0_10px_30px_rgba(0,0,0,0.25)]"
-                    style={{ backdropFilter: 'blur(18px)' }}>
+                  <div
+                    className="ml-auto rounded-full bg-black/35 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.35em] text-white/80 shadow-[0_10px_30px_rgba(0,0,0,0.25)]"
+                    style={{ backdropFilter: 'blur(18px)' }}
+                  >
                     {activeIndex >= 0 ? `${activeIndex + 1}/${items.length}` : `0/${items.length}`}
                   </div>
                 </div>
               </div>
 
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="relative h-full w-full flex items-center justify-center overflow-hidden">
-                  {item.type === 'video' ? (
-                    <video
-                      ref={(el) => {
-                        if (el) {
-                          videoRefs.current[item.id!] = el;
-                        }
-                      }}
-                      src={isActive || isNeighbor ? mediaUrl : undefined}
-                      poster={posterUrl}
-                      className="max-h-full max-w-full object-contain"
-                      loop
-                      playsInline
-                      muted={!isActive}
-                      controls={false}
-                      crossOrigin="anonymous"
-                      preload={isActive ? 'auto' : isNeighbor ? 'metadata' : 'none'}
-                      autoPlay={isActive}
-                      onLoadedData={() => {
-                        if (isActive && videoRefs.current[item.id!]) {
-                          updateVideoControls(videoRefs.current[item.id!]);
-                          playVideo(videoRefs.current[item.id!]);
-                          setDuration(videoRefs.current[item.id!]?.duration || 0);
-                          setIsContentReady(true);
-                        }
-                      }}
-                      onPlay={() => setIsPlaying(true)}
-                      onPause={() => setIsPlaying(false)}
-                      onTimeUpdate={() => {
-                        if (isActive && videoRefs.current[item.id!]) {
-                          const video = videoRefs.current[item.id!];
-                          setCurrentTime(video?.currentTime || 0);
-                          updateBuffered(video);
-                        }
-                      }}
-                      onProgress={() => {
-                        if (isActive && videoRefs.current[item.id!]) {
-                          updateBuffered(videoRefs.current[item.id!]);
-                        }
-                      }}
-                      onEnded={() => {
-                        setIsPlaying(false);
-                      }}
-                      onClick={() => toggleControlsVisibility()}
-                      onError={() => {
-                        /* Mostrar el poster si falla, pero no bloquear la navegación */
-                      }}
-                    />
-                  ) : (
-                    <img
-                      src={mediaUrl}
-                      className="relative max-h-full max-w-full object-contain transition-opacity duration-500 opacity-100"
-                      alt=""
-                      crossOrigin="anonymous"
-                      loading={isActive ? 'eager' : 'lazy'}
-                      decoding="async"
-                      onLoad={() => {
-                        if (isSelected) {
-                          setIsContentReady(true);
-                        }
-                      }}
-                      onClick={() => toggleControlsVisibility()}
-                      onError={() => {
-                        /* Si la imagen falla, el usuario verá un fallback limpio */
-                      }}
-                    />
-                  )}
-                </div>
+                <InstantMediaView
+                  item={item}
+                  isActive={isActive}
+                  mediaUrl={mediaUrl}
+                  videoRef={(el) => {
+                    if (el) videoRefs.current[item.id!] = el;
+                  }}
+                  onVideoLoadedData={() => {
+                    if (isActive && videoRefs.current[item.id!]) {
+                      setDuration(videoRefs.current[item.id!]?.duration || 0);
+                    }
+                  }}
+                  onVideoPlay={() => setIsPlaying(true)}
+                  onVideoPause={() => setIsPlaying(false)}
+                  onVideoTimeUpdate={() => {
+                    if (isActive && videoRefs.current[item.id!]) {
+                      const video = videoRefs.current[item.id!];
+                      setCurrentTime(video?.currentTime || 0);
+                      updateBuffered(video);
+                    }
+                  }}
+                  onVideoProgress={() => {
+                    if (isActive && videoRefs.current[item.id!]) {
+                      updateBuffered(videoRefs.current[item.id!]);
+                    }
+                  }}
+                  onVideoEnded={() => setIsPlaying(false)}
+                  toggleControlsVisibility={toggleControlsVisibility}
+                />
               </div>
 
               {showControls && isActive && item.type === 'video' && (
@@ -605,37 +506,6 @@ const ReelsViewer: React.FC = () => {
                   </div>
                 )}
               </div>
-              <AnimatePresence>
-                {isZooming && isSelected && (
-                  <motion.div
-                    initial={{
-                      position: 'fixed',
-                      top: originRect?.top || 0,
-                      left: originRect?.left || 0,
-                      width: originRect?.width || '100%',
-                      height: originRect?.height || '100%',
-                      borderRadius: '2rem',
-                      zIndex: 500,
-                    }}
-                    animate={{
-                      top: 0,
-                      left: 0,
-                      width: '100vw',
-                      height: '100vh',
-                      borderRadius: 0,
-                    }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                    className="flex items-center justify-center overflow-hidden"
-                    style={{ background: '#070710' }}
-                  >
-                    <div className="h-full w-full flex items-center justify-center">
-                      <div className="h-20 w-20 rounded-full border border-white/10 bg-white/5 shadow-[0_0_40px_rgba(255,255,255,0.08)]" />
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
             </div>
           );
         })}

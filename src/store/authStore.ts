@@ -29,6 +29,32 @@ interface AuthState {
   fetchLocalConfig: () => Promise<void>;
 }
 
+function optimizeNetworkConnections(urls: (string | undefined)[]) {
+  urls.forEach(url => {
+    if (!url || !url.startsWith('http')) return;
+    try {
+      const origin = new URL(url).origin;
+
+      if (!document.querySelector(`link[rel="dns-prefetch"][href="${origin}"]`)) {
+        const dnsLink = document.createElement('link');
+        dnsLink.rel = 'dns-prefetch';
+        dnsLink.href = origin;
+        document.head.appendChild(dnsLink);
+      }
+
+      if (!document.querySelector(`link[rel="preconnect"][href="${origin}"]`)) {
+        const connLink = document.createElement('link');
+        connLink.rel = 'preconnect';
+        connLink.href = origin;
+        connLink.crossOrigin = 'anonymous';
+        document.head.appendChild(connLink);
+      }
+    } catch (e) {
+      // Ignorar errores de sintaxis en URL
+    }
+  });
+}
+
 export const useAuthStore = create<AuthState>((set, get) => {
   const token = localStorage.getItem('auth_token');
   const lastUser = localStorage.getItem('last_user') || '';
@@ -47,6 +73,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       const cleanUrl = setPersistedBaseUrl(url);
       set({ baseUrl: cleanUrl });
       clearFileUrlCache();
+      optimizeNetworkConnections([cleanUrl]);
     },
 
     saveGlobalConfig: async (config) => {
@@ -63,6 +90,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
           isUpdatingGlobal: true
       });
       clearFileUrlCache();
+      optimizeNetworkConnections([config.api, config.media, config.upload, config.video]);
 
       const success = await updateGlobalBaseUrl(config);
       setTimeout(() => set({ isUpdatingGlobal: false }), 5000);
@@ -79,35 +107,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
           if (uploadUrl) localStorage.setItem('upload_url', uploadUrl);
           if (videoUrl) localStorage.setItem('video_url', videoUrl);
 
-          // PRE-CONEXIÓN INMEDIATA: Preparar los túneles en cuanto se conocen
-          [baseUrl, mediaUrl, videoUrl].forEach(url => {
-            if (url) {
-                const link = document.createElement('link');
-                link.rel = 'preconnect';
-                link.href = url;
-                link.crossOrigin = 'anonymous';
-                document.head.appendChild(link);
-            }
-          });
+          optimizeNetworkConnections([baseUrl, mediaUrl, uploadUrl, videoUrl]);
 
           set({ baseUrl, mediaUrl, uploadUrl, videoUrl });
           clearFileUrlCache();
-          console.log('✅ Red distribuida lista y pre-conectada');
-
-          // Intento de sincronizar inmediatamente con el backend (POST a /api/config-url)
-          try {
-            set({ isUpdatingGlobal: true });
-            const success = await updateGlobalBaseUrl({ api: baseUrl, media: mediaUrl || '', upload: uploadUrl || '', video: videoUrl || '' });
-            if (success) console.log('🔁 Backend sincronizado con nuevas URLs de túnel');
-            else console.warn('⚠️ No se pudo sincronizar backend con las URLs locales');
-          } catch (err) {
-            console.error('Error sincronizando backend desde config local:', err);
-          } finally {
-            set({ isUpdatingGlobal: false });
-          }
         }
       } catch (e) {
-        console.error('No se pudo autocompletar localmente');
+        // Ignorar si no existe archivo local
       }
     },
 
@@ -122,7 +128,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
         let changed = false;
 
         if (baseUrl && baseUrl !== get().baseUrl) {
-           console.warn('⚡ URL de API actualizada desde la nube:', baseUrl);
+           console.log('⚡ URL de API sincronizada desde Redis:', baseUrl);
            setPersistedBaseUrl(baseUrl);
            set({ baseUrl });
            changed = true;
@@ -148,18 +154,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
           clearFileUrlCache();
         }
 
-        // Reforzar pre-conexión tras sincronización global
-        [baseUrl, mediaUrl, videoUrl].forEach(url => {
-          if (url && !document.querySelector(`link[href="${url}"]`)) {
-            const link = document.createElement('link');
-            link.rel = 'preconnect';
-            link.href = url;
-            link.crossOrigin = 'anonymous';
-            document.head.appendChild(link);
-          }
-        });
+        optimizeNetworkConnections([baseUrl, mediaUrl, uploadUrl, videoUrl]);
       } catch (e) {
-        console.error('Error sincronizando configuración:', e);
+        // Ignorar
       }
     },
     
